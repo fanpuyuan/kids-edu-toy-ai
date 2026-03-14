@@ -1,0 +1,105 @@
+version: '3.8'
+
+services:
+  # 1. AI大脑推理服务 (Ollama)
+  ollama:
+    image: ollama/ollama:latest
+    container_name: kids_ollama
+    restart: always
+    volumes:
+      - ./data/ollama:/root/.ollama
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [ gpu ]
+    networks:
+      - kids-ai-net
+
+  # 2. ASR 服务 (语音转文字)
+  asr-service:
+    build: ./services/asr
+    container_name: asr_service
+    restart: always
+    volumes:
+      - ./data/asr_models:/root/.cache/modelscope
+      - pip_cache:/root/.cache/pip
+    networks:
+      - kids-ai-net
+
+  # 3. TTS 服务 (文字转语音)
+  tts-service:
+    build: ./services/tts
+    container_name: tts_service
+    restart: always
+    networks:
+      - kids-ai-net
+
+  # 4. RAG 服务 (知识库)
+  rag-service:
+    build: ./services/rag
+    container_name: rag_service
+    restart: always
+    volumes:
+      - ./data:/app/data
+    networks:
+      - kids-ai-net
+
+  # 5. Brain 服务 (LangGraph 编排)
+  brain-service:
+    build: ./services/brain
+    container_name: brain_service
+    restart: always
+    environment:
+      - OLLAMA_HOST=http://ollama:11434
+      - RAG_URL=http://rag-service:8003
+      - LLM_MODEL=qwen3.5:0.8b
+    depends_on:
+      - ollama
+      - rag-service
+    networks:
+      - kids-ai-net
+
+  # 6. Gateway 服务 (网关/WebSocket)
+  gateway:
+    build: ./services/gateway
+    container_name: gateway_service
+    restart: always
+    ports:
+      - "8080:8000" # 对外端口保持不变
+    environment:
+      - ASR_URL=http://asr-service:8001
+      - TTS_URL=http://tts-service:8002
+      - RAG_URL=http://rag-service:8003
+      - BRAIN_URL=http://brain-service:8004
+    depends_on:
+      - asr-service
+      - tts-service
+      - brain-service
+    networks:
+      - kids-ai-net
+
+  # 7. Web 前端演示
+  frontend:
+    build: ./services/frontend
+    container_name: kids_frontend
+    restart: always
+    ports:
+      - "8501:8501"
+    environment:
+      - BACKEND_URL=ws://gateway:8000/ws
+    volumes:
+      - pip_cache:/root/.cache/pip
+    depends_on:
+      - gateway
+    networks:
+      - kids-ai-net
+
+volumes:
+  pip_cache:
+
+networks:
+  kids-ai-net:
+    driver: bridge

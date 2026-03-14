@@ -1,0 +1,9 @@
+funasr>=1.0.0
+modelscope>=1.18.0
+numpy<2.0.0
+torch
+torchaudio
+fastapi
+uvicorn
+loguru
+python-multipart
