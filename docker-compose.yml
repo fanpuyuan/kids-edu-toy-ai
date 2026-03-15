@@ -44,6 +44,8 @@ services:
       network: host
     container_name: rag_service
     restart: always
+    volumes:
+      - ./data/rag_data:/app/data
     networks:
       - kids-ai-net
 

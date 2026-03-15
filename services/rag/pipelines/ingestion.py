@@ -17,7 +17,10 @@ class IngestionPipeline:
         logger.info(f"Starting ingestion for file: {file_path}")
         
         # Load document
-        reader = SimpleDirectoryReader(input_files=[file_path])
+        reader = SimpleDirectoryReader(
+            input_files=[file_path],
+            encoding="utf-8"
+        )
         documents = reader.load_data()
         
         logger.info(f"Loaded {len(documents)} document objects. Extracting nodes...")
@@ -95,10 +98,18 @@ class IngestionPipeline:
         """Wipes the ChromaDB and deletes the BM25 pickle."""
         try:
             # Reset Chroma
+            from llama_index.vector_stores.chroma import ChromaVectorStore
+            from llama_index.core import StorageContext
+            
             client = self.db.chroma_client
             client.delete_collection(self.db.chroma_collection_name)
+            
             self.db.chroma_collection = client.get_or_create_collection(self.db.chroma_collection_name)
+            self.db.vector_store = ChromaVectorStore(chroma_collection=self.db.chroma_collection)
+            self.db.storage_context = StorageContext.from_defaults(vector_store=self.db.vector_store)
+            
             self.db.vector_index = None # Reset in memory index
+            
             
             # Reset BM25
             if self.db.bm25_path.exists():
