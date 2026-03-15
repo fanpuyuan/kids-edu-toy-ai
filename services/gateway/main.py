@@ -5,8 +5,10 @@ import json
 import base64
 import httpx
 import logging
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request, BackgroundTasks
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request, BackgroundTasks, UploadFile, File, Form, HTTPException
 from fastapi.responses import JSONResponse, Response
+from pydantic import BaseModel
+
 from loguru import logger
 import os
 
@@ -20,6 +22,11 @@ ASR_URL = os.getenv("ASR_URL", "http://asr-service:8001")
 TTS_URL = os.getenv("TTS_URL", "http://tts-service:8002")
 RAG_URL = os.getenv("RAG_URL", "http://rag-service:8003")
 BRAIN_URL = os.getenv("BRAIN_URL", "http://brain-service:8004")
+
+class MemoryUpdateRequest(BaseModel):
+    layer: str
+    content: str
+
 
 async def perform_pull(model_name: str):
     """后台运行，真正去连接 ollama 执行 pull 并解析进度流"""
@@ -87,6 +94,92 @@ async def ollama_status():
         logger.error(f"获取 Ollama 状态失败: {e}")
         return JSONResponse(status_code=500, content={"error": "无法连接到 Ollama 服务"})
 
+# --- RAG / Memory Proxy Endpoints ---
+
+@app.post("/upload_doc")
+async def upload_doc(file: UploadFile = File(...)):
+    """Proxy file upload to RAG service"""
+    logger.info(f"Proxying file upload to RAG: {file.filename}")
+    try:
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            content = await file.read()
+            files = {"file": (file.filename, content, file.content_type)}
+            res = await client.post(f"{RAG_URL}/upload_doc", files=files)
+            return res.json()
+    except Exception as e:
+        logger.error(f"Failed to proxy upload_doc: {e}")
+        raise HTTPException(status_code=500, detail="RAG service unavailable")
+
+@app.post("/clear_docs")
+async def clear_docs():
+    """Proxy clear database command to RAG service"""
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            res = await client.post(f"{RAG_URL}/clear_docs")
+            return res.json()
+    except Exception as e:
+        logger.error(f"Failed to proxy clear_docs: {e}")
+        raise HTTPException(status_code=500, detail="RAG service unavailable")
+
+@app.get("/list_docs")
+async def list_docs():
+    """Proxy list documents command to RAG service"""
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            res = await client.get(f"{RAG_URL}/list_docs")
+            return res.json()
+    except Exception as e:
+        logger.error(f"Failed to proxy list_docs: {e}")
+        raise HTTPException(status_code=500, detail="RAG service unavailable")
+
+class DeleteDocRequest(BaseModel):
+    doc_id: str
+
+@app.post("/delete_doc")
+async def delete_doc(request: DeleteDocRequest):
+    """Proxy delete document command to RAG service"""
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            res = await client.post(f"{RAG_URL}/delete_doc", json={"doc_id": request.doc_id})
+            return res.json()
+    except Exception as e:
+        logger.error(f"Failed to proxy delete_doc: {e}")
+        raise HTTPException(status_code=500, detail="RAG service unavailable")
+
+@app.get("/memory/all")
+async def get_all_context():
+    """Proxy get all memory layers"""
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            res = await client.get(f"{RAG_URL}/memory/all")
+            return res.json()
+    except Exception as e:
+        logger.error(f"Failed to proxy memory/all: {e}")
+        raise HTTPException(status_code=500, detail="RAG service unavailable")
+
+@app.get("/memory/{layer}")
+async def get_memory_layer(layer: str):
+    """Proxy get specific memory layer"""
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            res = await client.get(f"{RAG_URL}/memory/{layer}")
+            return res.json()
+    except Exception as e:
+        logger.error(f"Failed to proxy memory/{layer}: {e}")
+        raise HTTPException(status_code=500, detail="RAG service unavailable")
+
+@app.post("/memory/update")
+async def update_memory_layer(request: MemoryUpdateRequest):
+    """Proxy memory update"""
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            res = await client.post(f"{RAG_URL}/memory/update", json={"layer": request.layer, "content": request.content})
+            return res.json()
+    except Exception as e:
+        logger.error(f"Failed to proxy memory/update: {e}")
+        raise HTTPException(status_code=500, detail="RAG service unavailable")
+
+
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
@@ -101,8 +194,8 @@ async def websocket_endpoint(websocket: WebSocket):
     }
     
     try:
-        # 增加超时时间到 120 秒，因为第一次加载新模型到显存通常需要 40-60 秒
-        async with httpx.AsyncClient(timeout=120.0) as client:
+        # 增加超时时间到 60 秒，因为第一次加载新模型到显存通常需要 40-60 秒
+        async with httpx.AsyncClient(timeout=60.0) as client:
             while True:
                 message = await websocket.receive_text()
                 request = json.loads(message)
@@ -151,7 +244,9 @@ async def handle_chat(websocket: WebSocket, data: dict, client: httpx.AsyncClien
             "input": text, 
             "session_id": session_id,
             "model": config.get("llm_model"),
-            "temperature": config.get("llm_temp")
+            "temperature": config.get("llm_temp"),
+            "llm_env": config.get("llm_env", "local"),
+            "llm_api_key": config.get("llm_api_key", "")
         }
         brain_res = await client.post(f"{BRAIN_URL}/chat", json=brain_payload)
         brain_data = brain_res.json()

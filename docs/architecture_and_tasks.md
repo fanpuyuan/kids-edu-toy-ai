@@ -58,6 +58,17 @@ graph TD
 
 - [ ] **1. 清理臃肿代码**：移除 `modules/llm.py` 中原生读取和吃内存的 `transformers/peft` 模型加载代码。
 - [ ] **2. 编写 Streamlit 演示前端 (`src/frontend/app.py`)**：写一个全栈可视化 UI，有一个大录音按钮，模拟玩具，能录音、发送、然后流式接收文字并播放合成的童声。
-- [ ] **3. 后端对接重构 (`modules/llm.py`)**：改为使用 Langchain 异步对接内部 Ollama 微调后的 Qwen 模型接口。
-- [ ] **4. 编写 All-in-One 部署文件 (`docker-compose.yml`)**：包含独立的大模型容器(`ollama`)、业务控制容器(`backend`)和全栈UI展现容器(`frontend`)，并配好内网域名解析。
-- [ ] **5. 云部署与公网透传联调**：在阿里云上 `docker-compose up -d`，把模型文件送入 Ollama，并配置服务器安全组放行 8000 和 8501 端口！
+- [x] **3. 后端对接重构 (`modules/llm.py`)**：改为使用 Langchain 异步对接内部 Ollama 微调后的 Qwen 模型接口。
+- [x] **4. 编写 All-in-One 部署文件 (`docker-compose.yml`)**：包含独立的大模型容器(`ollama`)、业务控制容器(`backend`)和全栈UI展现容器(`frontend`)，并配好内网域名解析。
+- [ ] **5. 云部署与公网透传联调**：(已延期，见附注)
+
+## 附注: 阿里云部署硬件限制与测略调整 (2026-03)
+
+针对目标阿里云 ECS 服务器 (2C2G，纯 CPU)，由于内存 (2GB) 规格硬限制，无法完整支撑本系统包含的本地化大模型 (Ollama + 至少 1.5GB 内存) 和本地化语音识别 (FunASR + 至少 0.5GB 内存) 容器的同时运行。强行采用 `docker-compose up` 部署会导致 OOM (Out Of Memory) 崩溃。
+
+**后续部署备选方案**:
+1. **云端纯展示/代理网关**: 将 2C2G 服务器仅作为代理层和 Web UI (Streamlit + Gateway)，推理和语音业务使用内网穿透转发回本地硬件 (具有独立 GPU)。
+2. **切换为云大厂 API**: 将 Ollama 容器替换为对外部商业大模型 (通义千问 API / 智谱 API等) 的轻量级 HTTP 调用，ASR 替换为调用阿里云公有云 API。
+3. **升级 ECS 规格**: 对于全本地化容器部署，最低建议将规格升级至 4C8G。
+
+当前阶段，我们暂停公有云的架构调优，将重心转移至基于本地化硬件环境的**功能优化 (Project Optimization)**，重点攻克 RAG 与大语言模型系统的高级整合。

@@ -4,3 +4,4 @@ httpx
 loguru
 numpy
 websockets
+python-multipart

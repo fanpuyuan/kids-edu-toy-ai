@@ -23,11 +23,33 @@ class GraphState(TypedDict):
     session_id: str
     config: Dict # 存储模型和参数
 
+from langchain_openai import ChatOpenAI
+
 # 获取 LLM 实例的辅助函数
 def get_llm(state: GraphState):
-    model = state.get("config", {}).get("model") or LLM_MODEL
-    temp = state.get("config", {}).get("temperature", 0.7)
-    return ChatOllama(model=model, base_url=OLLAMA_HOST, temperature=temp)
+    config = state.get("config", {})
+    model = config.get("model") or LLM_MODEL
+    temp = config.get("temperature", 0.7)
+    env = config.get("llm_env", "local")
+    api_key = config.get("llm_api_key", "")
+    
+    if env == "cloud":
+        base_url = None
+        if "deepseek" in model.lower():
+            base_url = "https://api.deepseek.com/v1"
+        elif "glm" in model.lower():
+            base_url = "https://open.bigmodel.cn/api/paas/v4"
+            
+        return ChatOpenAI(
+            model=model,
+            api_key=api_key,
+            base_url=base_url,
+            temperature=temp,
+            max_tokens=1024
+        )
+    else:
+        # Default Local Ollama
+        return ChatOllama(model=model, base_url=OLLAMA_HOST, temperature=temp)
 
 async def classify_intent(state: GraphState):
     """节点 1: 意图分类"""
@@ -57,30 +79,71 @@ async def retrieve(state: GraphState):
         try:
             res = await client.post(
                 f"{RAG_URL}/retrieve", 
-                json={"query": state["input"], "k": 3, "category": state["intent"]}
+                json={"query": state["input"], "top_k": 3}
             )
-            docs = res.json()
-            context = "\n".join([d["page_content"] for d in docs])
+            data = res.json()
+            results = data.get("results", [])
+            
+            # 格式化带引用的上下文
+            context_parts = []
+            for i, item in enumerate(results):
+                context_parts.append(f"[引用{i+1}] {item['content']} (来源: {item['source']})")
+                
+            context = "\n\n".join(context_parts)
             return {"context": context}
         except Exception as e:
             logger.error(f"RAG Retrieval failed: {e}")
             return {"context": ""}
+
+async def fetch_memory() -> dict:
+    """获取三层 Markdown 记忆"""
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            res = await client.get(f"{RAG_URL}/memory/all")
+            if res.status_code == 200:
+                return res.json()
+    except Exception as e:
+        logger.error(f"Failed to fetch memory from RAG service: {e}")
+    return {"system": "你是活泼的AI早教伙伴。", "family": "", "snapshot": ""}
 
 async def generate(state: GraphState):
     """节点 3: 生成回答"""
     intent = state["intent"]
     context = state["context"]
     
-    if intent == "story":
-        prompt = ChatPromptTemplate.from_template("你是讲故事专家。基于以下素材为孩子讲个故事：\n素材：{context}\n请求：{input}\n故事：")
-    elif intent == "qa":
-        prompt = ChatPromptTemplate.from_template("你是百科老师。基于以下知识回答孩子：\n知识：{context}\n问题：{input}\n回答：")
+    # 动态拉取记忆
+    memory = await fetch_memory()
+    sys_base = memory.get("system", "你是活泼的AI早教伙伴。")
+    fam_base = memory.get("family", "")
+    snap_base = memory.get("snapshot", "")
+    
+    # 注入记忆拦截提示词
+    instructions = (
+        "\n\n[隐藏任务：自我记忆]\n"
+        "如果在对话中发现了关于用户的新特征、新偏好或重要事件，"
+        "你必须在回答的最末尾加上特定标签来记录它。格式：<UPDATE_MEMORY>简短总结新特征</UPDATE_MEMORY>\n"
+        "例如：<UPDATE_MEMORY>我不喜欢吃胡萝卜</UPDATE_MEMORY>\n"
+        "如果没有需要记忆的新信息，绝对不要输出这个标签！"
+    )
+    
+    # 组装超级 System Prompt
+    full_system = f"{sys_base}\n\n[家庭档案]\n{fam_base}\n\n[近期记忆快照]\n{snap_base}{instructions}"
+    
+    if intent == "story" and context:
+        prompt = ChatPromptTemplate.from_messages([
+            ("system", full_system),
+            ("human", "基于以下素材为我讲个故事。\n素材：\n{context}\n\n我的请求：{input}")
+        ])
+    elif intent == "qa" and context:
+        prompt = ChatPromptTemplate.from_messages([
+            ("system", full_system),
+            ("human", "基于以下知识精准回答我的问题，不要编造。\n知识：\n{context}\n\n我的问题：{input}")
+        ])
     else:
         prompt = ChatPromptTemplate.from_messages([
-            ("system", "你是活泼的AI玩具伙伴。"),
+            ("system", full_system),
             ("human", "{input}")
         ])
-    
     
     llm = get_llm(state)
     chain = prompt | llm | StrOutputParser()
@@ -88,6 +151,27 @@ async def generate(state: GraphState):
         "input": state["input"],
         "context": context
     })
+    
+    # ---------------- 核心：记忆拦截器 ----------------
+    import re
+    memory_match = re.search(r'<UPDATE_MEMORY>(.*?)</UPDATE_MEMORY>', response, re.DOTALL)
+    if memory_match:
+        new_memory = memory_match.group(1).strip()
+        # 将标签从返回结果中剥离，避免 TTS 读出来
+        response = re.sub(r'<UPDATE_MEMORY>.*?</UPDATE_MEMORY>', '', response, flags=re.DOTALL).strip()
+        
+        # 将截获的记忆发送到 RAG Service 追加进入快照
+        logger.info(f"拦截到 AI 自助记忆: {new_memory}")
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                await client.post(
+                    f"{RAG_URL}/memory/snapshot/append", 
+                    data={"content": f"- {new_memory}"} # Form 字段，附带 Markdown 列表格式
+                )
+        except Exception as e:
+            logger.error(f"AI Auto-Memory updating failed: {e}")
+    # ---------------------------------------------------
+            
     return {"response": response}
 
 def build_graph():
@@ -111,3 +195,4 @@ def build_graph():
 
 # 导出编译好的 Graph
 story_graph = build_graph()
+

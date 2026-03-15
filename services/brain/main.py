@@ -17,6 +17,8 @@ class BrainRequest(BaseModel):
     model: Optional[str] = None
     temperature: Optional[float] = 0.7
     history: List[dict] = []
+    llm_env: Optional[str] = "local"
+    llm_api_key: Optional[str] = ""
 
 @app.post("/chat")
 async def chat(request: BrainRequest):
@@ -31,7 +33,9 @@ async def chat(request: BrainRequest):
         "response": "",
         "config": {
             "model": request.model or LLM_MODEL,
-            "temperature": request.temperature
+            "temperature": request.temperature,
+            "llm_env": request.llm_env,
+            "llm_api_key": request.llm_api_key
         }
     }
     

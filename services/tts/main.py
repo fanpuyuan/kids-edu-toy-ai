@@ -1,5 +1,5 @@
 from fastapi import FastAPI, Response
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, JSONResponse
 from tts_service import TTSModule
 import uvicorn
 import base64

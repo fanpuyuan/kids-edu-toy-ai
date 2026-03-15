@@ -39,11 +39,11 @@ services:
 
   # 4. RAG 服务 (知识库)
   rag-service:
-    build: ./services/rag
+    build: 
+      context: ./services/rag
+      network: host
     container_name: rag_service
     restart: always
-    volumes:
-      - ./data:/app/data
     networks:
       - kids-ai-net
 
@@ -91,6 +91,7 @@ services:
     environment:
       - BACKEND_URL=ws://gateway:8000/ws
     volumes:
+      - ./services/frontend:/app
       - pip_cache:/root/.cache/pip
     depends_on:
       - gateway
