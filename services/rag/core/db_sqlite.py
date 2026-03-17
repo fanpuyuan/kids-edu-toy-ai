@@ -23,16 +23,39 @@ class SQLiteManager:
                     CREATE TABLE IF NOT EXISTS documents (
                         doc_id TEXT PRIMARY KEY,
                         filename TEXT NOT NULL,
+                        md5_hash TEXT,
+                        embedding_provider TEXT,
                         upload_time DATETIME NOT NULL,
                         status TEXT NOT NULL
                     )
                 ''')
+                
+                # Check if md5_hash column exists (Migration for existing databases)
+                cursor.execute("PRAGMA table_info(documents)")
+                columns = [info[1] for info in cursor.fetchall()]
+                if 'md5_hash' not in columns:
+                    logger.info("Migrating database: adding md5_hash column to documents table.")
+                    cursor.execute("ALTER TABLE documents ADD COLUMN md5_hash TEXT")
+                
+                if 'embedding_provider' not in columns:
+                    logger.info("Migrating database: adding embedding_provider column to documents table.")
+                    cursor.execute("ALTER TABLE documents ADD COLUMN embedding_provider TEXT")
+
+                # App Configuration Table
+                cursor.execute('''
+                    CREATE TABLE IF NOT EXISTS app_config (
+                        config_key TEXT PRIMARY KEY,
+                        config_value TEXT NOT NULL,
+                        updated_at DATETIME NOT NULL
+                    )
+                ''')
+                
                 conn.commit()
-            logger.info(f"Initialized SQLite database at {self.db_path}")
+            logger.info(f"Initialized/Migrated SQLite database at {self.db_path}")
         except Exception as e:
             logger.error(f"Failed to initialize SQLite database: {e}")
 
-    def add_document(self, filename: str) -> str:
+    def add_document(self, filename: str, md5_hash: str = None, provider: str = "local") -> str:
         """Adds a new document record and returns the generated doc_id."""
         doc_id = str(uuid.uuid4())
         upload_time = datetime.now().isoformat()
@@ -42,15 +65,44 @@ class SQLiteManager:
             with sqlite3.connect(self.db_path) as conn:
                 cursor = conn.cursor()
                 cursor.execute(
-                    "INSERT INTO documents (doc_id, filename, upload_time, status) VALUES (?, ?, ?, ?)",
-                    (doc_id, filename, upload_time, status)
+                    "INSERT INTO documents (doc_id, filename, md5_hash, embedding_provider, upload_time, status) VALUES (?, ?, ?, ?, ?, ?)",
+                    (doc_id, filename, md5_hash, provider, upload_time, status)
                 )
                 conn.commit()
-            logger.info(f"Added document record: {filename} ({doc_id})")
+            logger.info(f"Added document record: {filename} (Hash: {md5_hash})")
             return doc_id
         except Exception as e:
             logger.error(f"Failed to add document record {filename}: {e}")
             return ""
+
+    def get_doc_by_filename(self, filename: str) -> dict:
+        """Checks if a document with the same filename exists."""
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                conn.row_factory = sqlite3.Row
+                cursor = conn.cursor()
+                cursor.execute("SELECT * FROM documents WHERE filename = ?", (filename,))
+                row = cursor.fetchone()
+                return dict(row) if row else None
+        except Exception as e:
+            logger.error(f"Failed to get document by filename {filename}: {e}")
+            return None
+
+    def get_doc_by_hash(self, md5_hash: str, provider: str = None) -> dict:
+        """Checks if a document with the same MD5 hash exists."""
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                conn.row_factory = sqlite3.Row
+                cursor = conn.cursor()
+                if provider:
+                    cursor.execute("SELECT * FROM documents WHERE md5_hash = ? AND embedding_provider = ?", (md5_hash, provider))
+                else:
+                    cursor.execute("SELECT * FROM documents WHERE md5_hash = ?", (md5_hash,))
+                row = cursor.fetchone()
+                return dict(row) if row else None
+        except Exception as e:
+            logger.error(f"Failed to get document by hash {md5_hash}: {e}")
+            return None
 
     def update_document_status(self, doc_id: str, status: str):
         """Updates the status of an existing document."""
@@ -66,17 +118,18 @@ class SQLiteManager:
         except Exception as e:
             logger.error(f"Failed to update document status for {doc_id}: {e}")
 
-    def get_all_documents(self) -> list[dict]:
-        """Retrieves all document records."""
+    def get_all_documents(self, provider: str = None) -> list[dict]:
+        """Retrieves all document records, optionally filtered by provider."""
         try:
             with sqlite3.connect(self.db_path) as conn:
                 conn.row_factory = sqlite3.Row # To return dicts
                 cursor = conn.cursor()
-                cursor.execute("SELECT * FROM documents ORDER BY upload_time DESC")
+                if provider:
+                    cursor.execute("SELECT * FROM documents WHERE embedding_provider = ? ORDER BY upload_time DESC", (provider,))
+                else:
+                    cursor.execute("SELECT * FROM documents ORDER BY upload_time DESC")
                 rows = cursor.fetchall()
-                result = [dict(row) for row in rows]
-                # Fallback to an empty list on failure isn't technically needed with empty DBs, but nice to have.
-                return result
+                return [dict(row) for row in rows]
         except Exception as e:
             logger.error(f"Failed to retrieve documents: {e}")
             return []
@@ -91,5 +144,38 @@ class SQLiteManager:
             logger.info(f"Deleted document record: {doc_id}")
         except Exception as e:
             logger.error(f"Failed to delete document record {doc_id}: {e}")
+
+    # --- Configuration Management ---
+    
+    def get_all_configs(self) -> dict:
+        """Retrieves all configuration key-value pairs."""
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT config_key, config_value FROM app_config")
+                rows = cursor.fetchall()
+                return {row[0]: row[1] for row in rows}
+        except Exception as e:
+            logger.error(f"Failed to fetch configs: {e}")
+            return {}
+
+    def save_configs(self, configs: dict) -> bool:
+        """Saves a dictionary of configurations (Upsert)."""
+        updated_at = datetime.now().isoformat()
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                for key, value in configs.items():
+                    # UPSERT requires SQLite 3.24.0+. We use REPLACE INTO as a simple alternative for key-value.
+                    cursor.execute(
+                        "REPLACE INTO app_config (config_key, config_value, updated_at) VALUES (?, ?, ?)",
+                        (key, str(value), updated_at)
+                    )
+                conn.commit()
+            logger.info("Successfully updated app_config")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to save configs: {e}")
+            return False
 
 sqlite_manager = SQLiteManager()

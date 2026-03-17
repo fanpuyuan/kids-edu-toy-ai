@@ -58,6 +58,10 @@ services:
       - OLLAMA_HOST=http://ollama:11434
       - RAG_URL=http://rag-service:8003
       - LLM_MODEL=qwen3.5:0.8b
+      - LANGCHAIN_TRACING_V2=true
+      - LANGCHAIN_ENDPOINT=https://api.smith.langchain.com
+      - LANGCHAIN_API_KEY=your_langsmith_api_key_here
+      - LANGCHAIN_PROJECT=kids-edu-toy-brain
     depends_on:
       - ollama
       - rag-service
@@ -92,6 +96,7 @@ services:
       - "8501:8501"
     environment:
       - BACKEND_URL=ws://gateway:8000/ws
+      - DEFAULT_CLOUD_API_KEY=${DEFAULT_CLOUD_API_KEY:-}
     volumes:
       - ./services/frontend:/app
       - pip_cache:/root/.cache/pip

@@ -18,7 +18,8 @@ class GraphState(TypedDict):
     input: str
     chat_history: List[BaseMessage]
     intent: str
-    context: str
+    context: str # The RAG context
+    hardware_context: dict # The hardware-provided context (e.g., child's age)
     response: str
     session_id: str
     config: Dict # 存储模型和参数
@@ -45,11 +46,13 @@ def get_llm(state: GraphState):
             api_key=api_key,
             base_url=base_url,
             temperature=temp,
-            max_tokens=1024
+            max_tokens=1024,
+            streaming=True
         )
     else:
         # Default Local Ollama
-        return ChatOllama(model=model, base_url=OLLAMA_HOST, temperature=temp)
+        from langchain_community.chat_models import ChatOllama
+        return ChatOllama(model=model, base_url=OLLAMA_HOST, temperature=temp, streaming=True)
 
 async def classify_intent(state: GraphState):
     """节点 1: 意图分类"""
@@ -63,7 +66,8 @@ async def classify_intent(state: GraphState):
     
     # 归一化意图
     if "story" in intent: intent = "story"
-    elif "qa" in intent: intent = "qa"
+    elif "qa" in intent or "knowledge" in intent or "info" in intent: intent = "qa"
+    elif any(kw in state["input"] for kw in ["文件", "时间表", "知识库", "有没有", "是什么"]): intent = "qa" # 强制触发
     else: intent = "chat"
     
     logger.info(f"Session {state['session_id']} Intent: {intent}")
@@ -74,12 +78,17 @@ async def retrieve(state: GraphState):
     if state["intent"] not in ["story", "qa"]:
         return {"context": ""}
     
-    logger.info(f"正在检索 RAG 知识: {state['input']}")
+    logger.info(f"正在检索 RAG 知识: {state['input']} (Provider: {state['config'].get('embedding_provider', 'local')})")
     async with httpx.AsyncClient(timeout=10.0) as client:
         try:
             res = await client.post(
                 f"{RAG_URL}/retrieve", 
-                json={"query": state["input"], "top_k": 3}
+                json={
+                    "query": state["input"], 
+                    "top_k": 3,
+                    "embedding_provider": state["config"].get("embedding_provider", "local"),
+                    "embedding_api_key": state["config"].get("embedding_api_key", "")
+                }
             )
             data = res.json()
             results = data.get("results", [])
@@ -106,7 +115,9 @@ async def fetch_memory() -> dict:
         logger.error(f"Failed to fetch memory from RAG service: {e}")
     return {"system": "你是活泼的AI早教伙伴。", "family": "", "snapshot": ""}
 
-async def generate(state: GraphState):
+from langchain_core.runnables import RunnableConfig
+
+async def generate(state: GraphState, config: RunnableConfig):
     """节点 3: 生成回答"""
     intent = state["intent"]
     context = state["context"]
@@ -121,13 +132,16 @@ async def generate(state: GraphState):
     instructions = (
         "\n\n[隐藏任务：自我记忆]\n"
         "如果在对话中发现了关于用户的新特征、新偏好或重要事件，"
-        "你必须在回答的最末尾加上特定标签来记录它。格式：<UPDATE_MEMORY>简短总结新特征</UPDATE_MEMORY>\n"
-        "例如：<UPDATE_MEMORY>我不喜欢吃胡萝卜</UPDATE_MEMORY>\n"
-        "如果没有需要记忆的新信息，绝对不要输出这个标签！"
+        "你必须在回答的最末尾加上特定标签来记录它。\n"
+        "【警告】为了防止玩具读出这段代码，你必须在你所有对小孩的对话之后，输入分隔符 `|||`，然后再输出标签。\n"
+        "格式：对小孩的话 ||| <UPDATE_MEMORY>简短总结新特征</UPDATE_MEMORY>\n"
+        "例如：好的，我陪你玩！ ||| <UPDATE_MEMORY>我不喜欢吃胡萝卜</UPDATE_MEMORY>\n"
+        "如果没有需要记忆的新信息，绝对不要输出 ||| 和这个标签！"
     )
     
     # 组装超级 System Prompt
-    full_system = f"{sys_base}\n\n[家庭档案]\n{fam_base}\n\n[近期记忆快照]\n{snap_base}{instructions}"
+    hw_ctx_str = f"\n\n[玩具环境变量]\n{state.get('hardware_context', {})}" if state.get("hardware_context") else ""
+    full_system = f"{sys_base}\n\n[家庭档案]\n{fam_base}\n\n[近期记忆快照]\n{snap_base}{hw_ctx_str}{instructions}"
     
     if intent == "story" and context:
         prompt = ChatPromptTemplate.from_messages([
@@ -146,11 +160,12 @@ async def generate(state: GraphState):
         ])
     
     llm = get_llm(state)
-    chain = prompt | llm | StrOutputParser()
+    # 打上唯一的 Tag，让 main.py 中的 astream_events 知道这是允许发给前端发音的文本
+    chain = prompt | llm.with_config({"tags": ["generate_output"]}) | StrOutputParser()
     response = await chain.ainvoke({
         "input": state["input"],
         "context": context
-    })
+    }, config=config)
     
     # ---------------- 核心：记忆拦截器 ----------------
     import re

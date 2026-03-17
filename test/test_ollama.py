@@ -26,11 +26,13 @@ async def test_ollama():
             payload = {
                 "model": model,
                 "prompt": "Hello",
-                "stream": False
+                "stream": True # Using stream to test chunk generation speed
             }
-            res = await client.post("http://ollama:11434/api/generate", json=payload, timeout=30.0)
-            print(f"Generate status: {res.status_code}")
-            print(f"Response: {res.json().get('response', 'No response field')}")
+            async with client.stream("POST", "http://ollama:11434/api/generate", json=payload, timeout=120.0) as st_res:
+                print(f"Generate stream status: {st_res.status_code}")
+                async for line in st_res.aiter_lines():
+                    if line:
+                        print(f"Chunk: {line}")
             
     except Exception as e:
         print(f"\n[ERROR] Connection failed: {type(e).__name__}: {str(e)}")

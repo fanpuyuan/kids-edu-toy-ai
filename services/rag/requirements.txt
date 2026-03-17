@@ -8,5 +8,6 @@ llama-index-retrievers-bm25
 unstructured[all-docs]
 rank_bm25
 jieba
+llama-index-embeddings-dashscope
 pydantic
 python-multipart

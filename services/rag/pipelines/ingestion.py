@@ -1,7 +1,10 @@
 import os
 import shutil
+import hashlib
+from typing import List, Optional
 from pathlib import Path
 from loguru import logger
+import jieba
 from llama_index.core import SimpleDirectoryReader, VectorStoreIndex
 from llama_index.core.node_parser import SentenceSplitter
 from llama_index.retrievers.bm25 import BM25Retriever
@@ -10,65 +13,98 @@ from core.db import DBManager
 class IngestionPipeline:
     def __init__(self, db_manager: DBManager):
         self.db = db_manager
-        self.node_parser = SentenceSplitter(chunk_size=500, chunk_overlap=50)
+        self.node_parser = SentenceSplitter(chunk_size=512, chunk_overlap=50)
 
-    def ingest_file(self, file_path: str, doc_id: str = None):
-        """Processes a single file and adds it to the ChromaDB and BM25 index."""
-        logger.info(f"Starting ingestion for file: {file_path}")
+    def calculate_md5(self, file_path: str) -> str:
+        """Calculates MD5 hash of a file."""
+        hash_md5 = hashlib.md5()
+        with open(file_path, "rb") as f:
+            for chunk in iter(lambda: f.read(4096), b""):
+                hash_md5.update(chunk)
+        return hash_md5.hexdigest()
+
+    def ingest_file(self, file_path: str, doc_id: str, provider: str = "local", api_key: Optional[str] = None) -> int:
+        """Processes a file and stores its nodes in Chroma and BM25."""
+        logger.info(f"Starting ingestion for file: {file_path} with doc_id: {doc_id} using provider: {provider}")
         
-        # Load document
-        reader = SimpleDirectoryReader(
-            input_files=[file_path],
-            encoding="utf-8"
-        )
-        documents = reader.load_data()
+        engine = self.db.get_engine(provider, api_key=api_key)
         
-        logger.info(f"Loaded {len(documents)} document objects. Extracting nodes...")
-        
-        # Parse into nodes (chunks)
+        # Load and split
+        documents = SimpleDirectoryReader(input_files=[file_path]).load_data()
         nodes = self.node_parser.get_nodes_from_documents(documents)
-        logger.info(f"Generated {len(nodes)} nodes (chunks).")
         
-        # Inject doc_id into Metadata to track lineage
-        if doc_id:
-            for node in nodes:
-                node.metadata["doc_id"] = doc_id
-
-        # 1. Insert into Vector Store
-        if self.db.vector_index is None:
-            # First time creating the index
-            logger.info("Initializing new Vector Index...")
-            self.db.vector_index = VectorStoreIndex(
-                nodes,
-                storage_context=self.db.storage_context,
-                embed_model=self.db.embed_model
-            )
+        # Add metadata
+        for node in nodes:
+            node.metadata["doc_id"] = doc_id
+        
+        # 1. Vector Store
+        if engine.vector_index:
+            engine.vector_index.insert_nodes(nodes)
         else:
-            # Insert into existing index
-            logger.info("Inserting nodes into existing Vector Index...")
-            self.db.vector_index.insert_nodes(nodes)
+            engine.vector_index = VectorStoreIndex(
+                nodes, 
+                storage_context=engine.storage_context,
+                embed_model=engine.embed_model
+            )
         
-        # 2. Rebuild BM25 Index
-        # BM25Retriever in LlamaIndex currently needs to be re-initialized with all nodes
-        # To do this correctly, we need to retrieve all nodes currently in the docstore.
-        # For simplicity in this early version, we will fetch all docs from Chroma to rebuild BM25
-        logger.info("Rebuilding BM25 Index...")
-        self._rebuild_bm25()
+        # 2. Keyword Store (BM25)
+        # 优化: 不是每次都从 Chroma 全量拉取重建，而是将新增节点追加到现有的 BM25 中
+        self._add_to_bm25(nodes, provider, api_key=api_key)
         
-        logger.info(f"Ingestion successful for {file_path}")
         return len(nodes)
 
-    def _rebuild_bm25(self):
-        """Fetches all documents from ChromaDB and rebuilds the BM25 index."""
-        try:
-            # Getting all documents currently in the vector store
-            # LlamaIndex's Chroma store doesn't easily expose 'get_all_nodes', so we use the chroma client
-            collection_data = self.db.chroma_collection.get()
+    def _add_to_bm25(self, new_nodes: list, provider: str = "local", api_key: Optional[str] = None):
+        """Incrementally adds new nodes to the existing BM25 index."""
+        engine = self.db.get_engine(provider, api_key=api_key)
+        
+        def chinese_tokenizer(text):
+            return list(jieba.cut(text))
             
+        try:
+            if engine.bm25_retriever is None:
+                # If it doesn't exist, we fallback to rebuild (or init with these nodes)
+                # In most cases of a fresh start, these are the only nodes anyway.
+                logger.info(f"Initializing new BM25 index for {provider}")
+                new_bm25 = BM25Retriever.from_defaults(
+                    nodes=new_nodes, 
+                    similarity_top_k=5, 
+                    tokenizer=chinese_tokenizer
+                )
+                self.db.save_bm25(provider, new_bm25)
+            else:
+                # BM25 doesn't have a direct 'add_nodes' method in LlamaIndex out of the box.
+                # Since LlamaIndex BM25 is just a wrapper around rank_bm25, 
+                # appending is still safer than extracting everything from chromadb,
+                # but we need to combine the nodes from the existing retriever 
+                logger.info(f"Appending {len(new_nodes)} nodes to existing BM25 for {provider}")
+                existing_nodes = engine.bm25_retriever.corpus_nodes
+                # combine old and new
+                all_nodes = list(existing_nodes) + new_nodes
+                
+                updated_bm25 = BM25Retriever.from_defaults(
+                    nodes=all_nodes, 
+                    similarity_top_k=5, 
+                    tokenizer=chinese_tokenizer
+                )
+                self.db.save_bm25(provider, updated_bm25)
+                
+        except Exception as e:
+            logger.error(f"Failed to add to BM25 for {provider}: {e}")
+            # Fallback to full rebuild if incremental fails
+            self._rebuild_bm25(provider, api_key=api_key)
+
+    def _rebuild_bm25(self, provider: str = "local", api_key: Optional[str] = None):
+        """Rebuilds the BM25 index for all documents of a specific provider. 
+        Only used on document deletion."""
+        engine = self.db.get_engine(provider, api_key=api_key)
+        
+        # Fetch all nodes from Chroma for this collection
+        # Note: This is an expensive operation but ensures consistency for BM25
+        try:
+            collection_data = engine.chroma_collection.get()
             from llama_index.core.schema import TextNode
             all_nodes = []
             
-            # Reconstruct nodes from Chroma dictionary format
             if collection_data and collection_data["documents"]:
                 for i in range(len(collection_data["documents"])):
                     text = collection_data["documents"][i]
@@ -77,8 +113,6 @@ class IngestionPipeline:
                     all_nodes.append(TextNode(text=text, id_=node_id, metadata=metadata))
             
             if all_nodes:
-                import jieba
-                # Standard BM25Retriever requires tokenizer for Chinese
                 def chinese_tokenizer(text):
                     return list(jieba.cut(text))
                 
@@ -87,57 +121,35 @@ class IngestionPipeline:
                     similarity_top_k=5, 
                     tokenizer=chinese_tokenizer
                 )
-                self.db.save_bm25(new_bm25)
-                logger.info(f"BM25 rebuilt with {len(all_nodes)} nodes using jieba tokenizer.")
-            else:
-                logger.warning("No nodes found in ChromaDB to build BM25.")
+                self.db.save_bm25(provider, new_bm25)
+                logger.info(f"BM25 index rebuilt for {provider} with {len(all_nodes)} nodes.")
         except Exception as e:
-            logger.error(f"Failed to rebuild BM25: {e}")
+            logger.error(f"Failed to rebuild BM25 for {provider}: {e}")
 
-    def clear_database(self):
-        """Wipes the ChromaDB and deletes the BM25 pickle."""
+    def delete_doc(self, doc_id: str, provider: str = "local", api_key: Optional[str] = None) -> bool:
+        """Deletes all nodes associated with a doc_id from Chroma and rebuilds BM25."""
+        engine = self.db.get_engine(provider, api_key=api_key)
         try:
-            # Reset Chroma
-            from llama_index.vector_stores.chroma import ChromaVectorStore
-            from llama_index.core import StorageContext
-            
-            client = self.db.chroma_client
-            client.delete_collection(self.db.chroma_collection_name)
-            
-            self.db.chroma_collection = client.get_or_create_collection(self.db.chroma_collection_name)
-            self.db.vector_store = ChromaVectorStore(chroma_collection=self.db.chroma_collection)
-            self.db.storage_context = StorageContext.from_defaults(vector_store=self.db.vector_store)
-            
-            self.db.vector_index = None # Reset in memory index
-            
-            
-            # Reset BM25
-            if self.db.bm25_path.exists():
-                os.remove(self.db.bm25_path)
-            self.db.bm25_retriever = None
-            
-            logger.info("Successfully cleared all Vector and BM25 databases.")
+            engine.chroma_collection.delete(where={"doc_id": doc_id})
+            self._rebuild_bm25(provider, api_key=api_key)
             return True
         except Exception as e:
-            logger.error(f"Failed to clear database: {e}")
+            logger.error(f"Failed to delete {doc_id} from Chroma ({provider}): {e}")
             return False
 
-    def delete_doc(self, doc_id: str) -> bool:
-        """Deletes all chunks belonging to a specific doc_id from ChromaDB and rebuilds BM25."""
+    def clear_database(self, provider: str = "local", api_key: Optional[str] = None) -> bool:
+        """Clears all vectors and BM25 for a specific provider."""
+        engine = self.db.get_engine(provider, api_key=api_key)
         try:
-            # 1. Delete from Chroma vectors by metadata filter
-            client = self.db.chroma_client
-            collection = self.db.chroma_collection
-            
-            # LlamaIndex/ChromaDB typically allows deletion by where clause natively via chromadb
-            collection.delete(where={"doc_id": doc_id})
-            logger.info(f"Deleted vectors for doc_id: {doc_id} from ChromaDB")
-            
-            # 2. Rebuild BM25 to remove the deleted documents keywords 
-            # (since BM25 is purely in-memory, we drop the whole index and rebuild it from the remaining chroma objects)
-            logger.info("Rebuilding BM25 Index to purge deleted items...")
-            self._rebuild_bm25()
+            # Delete nodes from Chroma
+            engine.chroma_collection.delete(where={})
+            # Remove BM25 files
+            if engine.bm25_dir.exists():
+                shutil.rmtree(engine.bm25_dir)
+            # Reset engine state
+            engine.vector_index = None
+            engine.bm25_retriever = None
             return True
         except Exception as e:
-            logger.error(f"Failed to delete document vectors for doc_id {doc_id}: {e}")
+            logger.error(f"Failed to clear database for {provider}: {e}")
             return False

@@ -1,107 +1,173 @@
-# KidsEduToy AI (儿童教育智能玩具 - AI应用层)
+<div align="center">
+  <h1>🧸 KidsEduToy AI </h1>
+  <p><b>儿童教育智能玩具 - 独立全栈架构 AI 应用系统</b></p>
 
-KidsEduToy AI 是一款面向儿童教育的智能玩具后端AI应用系统。项目采用**微服务架构**与**Docker容器化部署**，集成了语音识别(ASR)、大语言模型处理(LLM)、检索增强生成(RAG)与语音合成(TTS)，并通过 WebSocket 为硬件玩具或前端UI提供低延迟的流式交互体验。
+  <p>
+    <img src="https://img.shields.io/badge/Python-3.10+-blue.svg" alt="Python">
+    <img src="https://img.shields.io/badge/Docker-Microservices-2496ED.svg" alt="Docker">
+    <img src="https://img.shields.io/badge/FastAPI-Gateway-009688.svg" alt="FastAPI">
+    <img src="https://img.shields.io/badge/LangGraph-Brain-FF9900.svg" alt="LangGraph">
+    <img src="https://img.shields.io/badge/Ollama-Local%20LLM-black.svg" alt="Ollama">
+  </p>
+</div>
 
-## 🌟 核心特性
+---
 
-- **微服务架构设计**：全系统拆分为 7 个独立 Docker 容器（Gateway, Brain, RAG, ASR, TTS, Frontend, Ollama），高度解耦，易于扩展与维护。
-- **全栈流式交互 (WebSocket)**：网关层提供全双工 WebSocket 接口，支持语音/文本输入，并流式传回文本分块与音频分块，实现近似真人的对话延迟。
-- **智能大脑编排 (LangGraph)**：基于 LangGraph 构建的状态机，自动进行意图分类（故事、问答、日常聊天），按需调度 RAG 检索引擎，支持无缝切换本地大模型 (Ollama) 与云端 API (DeepSeek/GLM-4)。
-- **混合检索与三层记忆 (RAG)**：
-  - **文档库**：支持多格式解析上传，采用混合检索（ChromaDB 向量 + BM25 关键词）。
-  - **记忆机制**：创新的三层 Markdown 记忆架构（SYSTEM 核心人设、FAMILY 家庭档案、SNAPSHOT 近期快照）。AI 可在对话中通过隐式标签自动更新孩子的偏好记录。
-- **开箱即用的控制台**：内置基于 Streamlit 的可视化 Web 控制台，方便调试对话、管理知识库与编辑玩具记忆体系。
+## 📖 简介 (Overview)
 
-## 🏗️ 系统架构与微服务
+`kids-edu-toy-ai` 是一款专为**儿童教育智能硬件实体玩具**打造的后端智能大脑应用。
+该系统采用 **高度解耦的微服务架构 (Microservices)** 与 **全栈 Docker 容器化部署**。通过 WebSocket 网关为终端玩具提供“近乎零延迟”的流式交互体验。它不仅集成了业界前沿的智能体工作流引擎、检索增强生成 (RAG)，还首创了“云端大模型”与“断网/本地化 Ollama”的**混合双引擎热切换**设计。
 
-| 服务名称 | 端口 | 说明 | 核心依赖技术 |
-| - | - | - | - |
-| **Gateway** | 8000 | 对外 WebSokcet 网关，转发请求，编排微服务调用 | FastAPI, WebSockets |
-| **Frontend** | 8501 | Web 测试控制台 (模拟玩具终端交互与后台管理) | Streamlit |
-| **Brain** | 8004 | AI 核心逻辑引擎，处理意图分类、记忆注入、LLM 调用 | LangGraph, LangChain |
-| **RAG** | 8003 | 知识检索、文件入库解析、长期/短期记忆层管理 | ChromaDB, LlamaIndex, SQLite |
-| **ASR** | 8001 | 独立语音识别服务 (音频转文本) | FunASR (Paraformer) |
-| **TTS** | 8002 | 独立语音合成服务 (文本转语音流) | Edge-TTS |
-| **Ollama** | 11434 | 本地的大语言模型推理引擎 | Ollama (兼容 Nvidia GPU) |
+✨ 给孩子一台不仅能听懂他们，还会**自主记忆并共同成长**的实体玩伴伴侣！
 
-## 🚀 快速开始
+---
 
-### 1. 环境准备
-- 确保系统已安装 **Docker** 和 **Docker Compose**。
-- 如需使用本地 GPU 加速大模型推理，请确保系统已安装 NVIDIA 驱动以及 NVIDIA Container Toolkit。
+## 🌟 核心亮点 (Key Features)
 
-### 2. 一键启动服务
-在项目根目录下执行以下命令：
+*   🚀 **真·流式全双工架构 (True Streaming)**：自研分包算法，打通从 API Gateway -> LangGraph (Brain) -> Ollama 底层推理机制的流式通信，首字响应低至百毫秒级。
+*   🧠 **智能体状态机 (LangGraph Orchestration)**：内置复杂路由引擎，能精准识别儿童发问意图并执行独立流：
+    *   📘 **故事引擎**（发散创作与配音）
+    *   ❓ **知识问答**（启动增强 RAG 引擎）
+    *   💬 **日常闲聊**（纯净安全交互与情绪疏导）
+*   💾 **自动化三层记忆体系 (Memory & RAG)**：
+    *   提供独立文档向量库，配合 ChromaDB + BM25 的准确混合检索。
+    *   智能捕捉儿童兴趣点/偏好，通过隐式元控制标签 `<UPDATE_MEMORY>` 无感录入。长期记忆真正落盘，越聊越精准。
+*   🔌 **本地与云端自由切换 (Hybrid LLM Support)**：
+    *   **本地隐私模式**：内置挂载 Ollama 对接容器（默认推荐 `qwen3.5:2b` 等小模型针对笔记本级显卡进行推理）。
+    *   **云端强大模式**：支持一键热重载切换 DeepSeek (V3/R1) 或 GLM-4 等顶级云服务 API。
+*   🎙️ **前后端一体双模 (ASR & TTS)**：不仅接管硬件玩具协议，也为开发者附带了基于 Streamlit 的可视化 Web 控制台，点开即玩。
+
+---
+
+## 🏗️ 系统架构图 (Architecture)
+
+```mermaid
+graph TD
+    subgraph "Terminal / Client"
+        T["🔌 Hardware Toy"] -.WebSocket.-> G
+        UI["💻 Web Console (Streamlit)"] -.WebSocket.-> G
+        UI -.HTTP.-> G
+    end
+
+    subgraph "🐳 Microservices (Docker Network: kids-ai-net)"
+        G(("🌐 Gateway Service\n[Port: 8000]"))
+        
+        B{"🧠 Brain Service\n(LangGraph)"}
+        R[("📚 RAG Service\nChromaDB+SQLite")]
+        A["🎙️ ASR Service\n(Paraformer)"]
+        TT["🔊 TTS Service\n(Edge-TTS)"]
+        O[("🦙 Ollama Container\nLocal LLMs")]
+
+        G <-->|Stream/Invoke| B
+        G -->|Config/Save| R
+        G -->|Audio2Text| A
+        b -->|Text2Audio| TT
+        
+        B <-->|Context/Memory| R
+        B <-->|Local Inference| O
+        B <.->|Cloud Inference| Ext("☁️ External API / DeepSeek")
+    end
+```
+
+### 微服务清单：
+| 服务组件 | 端口 | 核心技术栈 | 职责简述 |
+| :--- | :--- | :--- | :--- |
+| **`gateway`** | `8000` | FastAPI, WebSockets | 流量中枢，管理 WebSocket 连接与消息分发请求。 |
+| **`brain`** | `8004` | LangChain, LangGraph | AI 主控引擎、意图分类与提示词动态编排。 |
+| **`rag`** | `8003` | LlamaIndex, ChromaDB | 知识库持久化向量检索，提供配置级 KV 存储。 |
+| **`asr`** | `8001` | FunASR (SenseVoice) | 将收到的二进制音频流离线转写为文本。 |
+| **`tts`** | `8002` | Edge-TTS | 获取文本块后流式合成高逼真自然语音包。 |
+| **`frontend`** | `8501` | Streamlit | 为家长/开发者提供图形化调试台及配置页面。 |
+| **`ollama`** | `11434` | Ollama Cpp | GPU 硬件加速的离线本地量化大语言模型运行库。 |
+
+---
+
+## ⚙️ 快速上手 (Quick Start)
+
+### 1. 环境先决条件 (Prerequisites)
+- 操作系统 Windows / Linux / macOS。
+- 已安装 [Docker Desktop](https://www.docker.com/products/docker-desktop/) 及最新版的 `docker-compose`。
+- *(可选推荐)* 若期望使用显卡全速运行本地大模型，需安装 NVIDIA 原厂显卡驱动及对应的 [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html)。
+
+### 2. 克隆项目与启动环境
 ```bash
-# 以后台模式构建并启动所有容器
+# 1. 克隆代码库
+git clone https://github.com/your-username/kids-edu-toy-ai.git
+cd kids-edu-toy-ai
+
+# 2. 检查或新建数据持久化目录
+mkdir data
+mkdir test
+
+# 3. 以后台挂起模式同时构建并拉起整个微服务集群
 docker-compose up -d --build
 ```
-启动后，系统会自动创建 `kids-ai-net` 网络桥接各服务，并挂载对应的缓存卷到 `data/` 目录下，以持久化向量库、模型权重和用户记忆。
+*(注：首次构建时会安装众多如 PyTorch、FunASR 等巨型 Python 依赖，视网速可能需要数十分钟。)*
 
-### 3. 访问交互界面
-- **Web 控制台 (推荐)**：在浏览器中打开 `http://localhost:8501` 进入可视化页面，进行测试对话、知识库上传管理，或拉取 Ollama 模型。
-- **WebSocket 接口**：供实际硬件终端连接，地址为 `ws://localhost:8000/ws`。
+### 3. 配置与体验交互界面
+成功启动后，使用浏览器访问：**[http://localhost:8501](http://localhost:8501)** 即可进入可视化控制台。
 
-## 📡 WebSocket API 协议
+*   **云端 API 快速配置**：如果你因为显存受限不想用本地模型，请在页面底部将 **“引擎偏好”** 切换至 `Cloud (API)`。随后填写你的 DeepSeek 或智谱大语言模型 API Key，点击 **「💾 保存设置为系统默认」**，即可永久生效。
+*   **本地大模型配置**：若拥有 `16GB` 及以上显存的独立显卡，可以点击控制台中的**“拉取 Ollama 本地模型”**按钮（填入如 `qwen3.5:2b`）。等待模型分配完成，将主会话栏引擎切为 `Local` 即可断网可用！
 
-提供给智能玩具硬件终端接入的交互接口。
+---
 
-**连接端点:** `ws://<宿主机IP>:8000/ws`
+## 📡 硬件终端 WebSocket API 文档
 
-**1. 客户端发送 (文字/语音请求):**
+如果你是固件开发者，希望将儿童硬件玩具连接至本服务，请使用 `ws://<Server IP>:8000/ws` 并遵守以下双工通讯 JSON 协议：
+
+**请求载荷示例 (Request Payload)**:
 ```json
 {
-  "action": "chat", // "chat" 文本聊天 / "audio" 语音聊天
-  "session_id": "kids_session_001",
+  "action": "chat",                  // 发送文本动作（语音为 "audio"）
+  "session_id": "device_user_A01",   // 用以隔离区分不同儿童的历史记忆状态
   "data": {
-    "text": "讲个关于大灰狼的故事", // 当 action 为 audio 时，此字段变为 "audio": "base64音频字符串"
-    "context": {"child_age": 5}
-  },
-  "config": {
-    "llm_env": "local",          // 环境：local (Ollama) 或 cloud (API)
-    "llm_model": "qwen3.5:2b",   // 模型选择
-    "tts_voice": "zh-CN-XiaoxiaoNeural"
+    "text": "我想听白雪公主吃毒苹果的故事！", // 文本输入内容
+    "context": {"child_age": 6}      // (可选) 附加状态，如玩具当前所处的模式/年龄
   }
 }
 ```
 
-**2. 服务端下发 (流式响应):**
+**响应推送流示例 (Streaming Response Streams)**:
 ```json
-// 返回语音识别结果（如果是 audio 语音输入）
-{"type": "asr_result", "data": {"text": "讲个关于大灰狼的故事"}}
-
-// 返回思考生成的文本流
-{"type": "text_chunk", "data": {"text": "很久很久以"}}
-{"type": "text_chunk", "data": {"text": "前，森林里..."}}
-
-// 返回语音合成流（可直接播放的音频块）
-{"type": "audio_chunk", "data": {"audio": "base64_encoded_audio_bytes..."}}
-
-// 响应全部结束标识
-{"type": "response_complete", "data": {"full_text": "很久很久以前，森林里..."}}
+{"type": "text_chunk", "data": {"text": "好的呀！"}}
+{"type": "audio_chunk", "data": {"audio": "<Base64 Encoded Wav Header Chunk>"}}
+{"type": "text_chunk", "data": {"text": "白雪公主为了..."}}
+{"type": "response_complete", "data": {"full_text": "好的呀！白雪公主为了..."}}
 ```
+硬件端收到 `audio_chunk` 后可直接将拿到的 base64 还原成二进制注入喇叭缓冲区形成不间断播放。
 
-## 🛠️ 项目目录说明
+---
 
+## 📂 项目目录树形结构
 ```text
 kids-edu-toy-ai/
-├── data/                  # 持久化数据与缓存目录 (知识库、模型缓存、SQLite等)
-├── docs/                  # 详细架构图与深入服务设计文档集
-├── services/              # 核心分布式微服务代码集
-│   ├── asr/               # 语音识别处理服务
-│   ├── brain/             # LangGraph 问答引擎与意图路由中心
-│   ├── frontend/          # Web 测试展现台 (Streamlit)
-│   ├── gateway/           # API Ws 网关服务节点
-│   ├── rag/               # 知识检索与记忆管理服务核心
-│   └── tts/               # 语音流合成服务
-├── docker-compose.yml     # 容器服务全栈编排配置文件
-└── requirements.txt       # 项目核心组件参考表 (各服务内拥有独立的运行依赖清单)
+├── data/                  # 持久化数据与缓存（会自动添加至 .gitignore）
+│   ├── rag_data/          # 存放 ChromaDB 向量缓存库、SQLite 表
+├── docs/                  # 详细架构图与深入微服务设计说明文档
+│   ├── ...
+├── models/                # 可存放你自主微调的外部 Lora 参数
+├── scripts/               # 独立的手工运维工具包与脚本库 (如全局重新编排索引等)
+├── services/              # ✅ 核心分布式微服务代码总集
+│   ├── asr/
+│   ├── brain/
+│   ├── frontend/
+│   ├── gateway/
+│   ├── rag/
+│   └── tts/
+├── test/                  # 各微服务的集成测试与接口沙箱回归运行代码
+├── docker-compose.yml     # 🚀 容器服务全栈互通编排网络配置
+└── requirements.txt       # 全局基底引用依赖
 ```
 
-## 📝 特色：AI 自动记忆捕获机制
-本项目实现了一套“自主长期人像学习”算法，记录用户偏好与特征：
-`Brain` 服务在其 LangGraph 执行最后节点，注入了自我记忆规则。当 AI 根据孩子对话，分辨出全新的兴趣特征或性格时，它会在不可见的底层返回附加大括号语义，如 `<UPDATE_MEMORY>我不喜欢吃青椒</UPDATE_MEMORY>`。拦截模块会自动将其摘除，以免被朗读，随后自动推送到 RAG-Memory 数据库的 SNAPSHOT 记忆层中永久记录，赋予玩具真正成长的特征。
+---
 
-## ⚠️ 部署配置建议
-1. **纯本地化算力部署**：推荐主机环境内存 >= 16GB。因为同时运行 FunASR 识别、大语言模型 Ollama 和 RAG 数据解析会导致内存的高占用。
-2. **轻量云服务器部署**：若部署在 2核2G 规格的低配云服务器上执行，可能会遇到 OOM (Out Of Memory) 崩溃。此时建议修改 Frontend 与 Backend 偏好配置，转用 `Cloud (API)` 模型，使用提供商的外部大模型 API 以节省运行资源。
+## 🤝 开发与贡献 (Contributing)
+如果你在此架构上扩展出了新功能（比如增加了视觉捕捉服务 Vision Service），欢迎发起 Pull Request：
+1. Fork 出你的私有分支 (`git checkout -b feature/AmazingFeature`)。
+2. 将新增的服务模块存放在 `services/`，并在 `docker-compose.yml` 中注册路由网桥暴露。
+3. 如果修改了 `gateway` 流式解析，请务必执行 `python test/integration_chat_flow.py` 回归测试流式组帧成功。
+4. Push 并创建拉取请求！
+
+## 📄 清单与开源许可 (License)
+本项目遵守 [MIT License](LICENSE)。你可以不受限地自由下载、商用修改。

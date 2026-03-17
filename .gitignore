@@ -58,3 +58,17 @@ gateway_recent.txt
 .Trashes
 ehthumbs.db
 Thumbs.db
+
+# Databases & Local App States
+*.db
+*.sqlite3
+*.db-journal
+*.db-shm
+*.db-wal
+
+# Docker volumes
+/data/
+db/
+qdrant_storage/
+chroma_db/
+

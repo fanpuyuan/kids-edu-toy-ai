@@ -8,6 +8,7 @@ import logging
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request, BackgroundTasks, UploadFile, File, Form, HTTPException
 from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel
+from typing import Optional
 
 from loguru import logger
 import os
@@ -97,37 +98,48 @@ async def ollama_status():
 # --- RAG / Memory Proxy Endpoints ---
 
 @app.post("/upload_doc")
-async def upload_doc(file: UploadFile = File(...)):
+async def upload_doc(
+    file: UploadFile = File(...),
+    embedding_provider: str = Form("local"),
+    embedding_api_key: Optional[str] = Form("")
+):
     """Proxy file upload to RAG service"""
     logger.info(f"Proxying file upload to RAG: {file.filename}")
     try:
         async with httpx.AsyncClient(timeout=120.0) as client:
             content = await file.read()
             files = {"file": (file.filename, content, file.content_type)}
-            res = await client.post(f"{RAG_URL}/upload_doc", files=files)
+            data = {"embedding_provider": embedding_provider, "embedding_api_key": embedding_api_key}
+            res = await client.post(f"{RAG_URL}/upload_doc", files=files, data=data)
             return res.json()
     except Exception as e:
         logger.error(f"Failed to proxy upload_doc: {e}")
         raise HTTPException(status_code=500, detail="RAG service unavailable")
 
 @app.post("/clear_docs")
-async def clear_docs():
+async def clear_docs(embedding_provider: str = "local", embedding_api_key: Optional[str] = None):
     """Proxy clear database command to RAG service"""
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
-            res = await client.post(f"{RAG_URL}/clear_docs")
+            res = await client.post(f"{RAG_URL}/clear_docs", params={"embedding_provider": embedding_provider, "embedding_api_key": embedding_api_key})
             return res.json()
     except Exception as e:
         logger.error(f"Failed to proxy clear_docs: {e}")
         raise HTTPException(status_code=500, detail="RAG service unavailable")
 
 @app.get("/list_docs")
-async def list_docs():
+async def list_docs(embedding_provider: Optional[str] = None):
     """Proxy list documents command to RAG service"""
+    logger.info(f"List docs request for provider: {embedding_provider}")
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
-            res = await client.get(f"{RAG_URL}/list_docs")
-            return res.json()
+            params = {}
+            if embedding_provider:
+                params["embedding_provider"] = embedding_provider
+            res = await client.get(f"{RAG_URL}/list_docs", params=params)
+            data = res.json()
+            logger.info(f"RAG returned {len(data.get('documents', []))} documents")
+            return data
     except Exception as e:
         logger.error(f"Failed to proxy list_docs: {e}")
         raise HTTPException(status_code=500, detail="RAG service unavailable")
@@ -136,15 +148,49 @@ class DeleteDocRequest(BaseModel):
     doc_id: str
 
 @app.post("/delete_doc")
-async def delete_doc(request: DeleteDocRequest):
+async def delete_doc(request: DeleteDocRequest, embedding_provider: str = "local", embedding_api_key: Optional[str] = None):
     """Proxy delete document command to RAG service"""
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
-            res = await client.post(f"{RAG_URL}/delete_doc", json={"doc_id": request.doc_id})
+            res = await client.post(
+                f"{RAG_URL}/delete_doc", 
+                json={
+                    "doc_id": request.doc_id, 
+                    "embedding_provider": embedding_provider,
+                    "embedding_api_key": embedding_api_key
+                }
+            )
             return res.json()
     except Exception as e:
         logger.error(f"Failed to proxy delete_doc: {e}")
         raise HTTPException(status_code=500, detail="RAG service unavailable")
+
+# --- Configuration Proxy Endpoints ---
+
+@app.get("/config")
+async def get_config():
+    """Proxies config retrieval to RAG service."""
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            res = await client.get(f"{RAG_URL}/config")
+            return res.json()
+    except Exception as e:
+        logger.error(f"Failed to fetch config from RAG service: {e}")
+        return {"status": "error", "message": "Failed to fetch config"}
+
+@app.post("/config")
+async def set_config(request: Request):
+    """Proxies config saving to RAG service."""
+    try:
+        configs = await request.json()
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            res = await client.post(f"{RAG_URL}/config", json=configs)
+            return res.json()
+    except Exception as e:
+        logger.error(f"Failed to save config to RAG service: {e}")
+        raise HTTPException(status_code=500, detail="Failed to save config")
+
+# --- Memory Proxy Endpoints ---
 
 @app.get("/memory/all")
 async def get_all_context():
@@ -234,11 +280,12 @@ async def handle_audio(websocket: WebSocket, data: dict, client: httpx.AsyncClie
     await handle_chat(websocket, {"text": text}, client, session_id=session_id, config=config)
 
 async def handle_chat(websocket: WebSocket, data: dict, client: httpx.AsyncClient, session_id: str, config: dict):
-    """处理文本逻辑: Brain -> TTS -> WebSocket"""
+    """处理文本逻辑: Brain -> TTS -> WebSocket (真实流式)"""
     text = data.get("text", "")
+    context = data.get("context", {}) # Hardware context (e.g., child_age: 5)
     
-    # 3. 调用 Brain Service
-    logger.info(f"发送到 Brain: {text}")
+    # 3. 调用 Brain Service (Stream)
+    logger.info(f"发送到 Brain: {text}, context: {context}")
     try:
         brain_payload = {
             "input": text, 
@@ -246,35 +293,145 @@ async def handle_chat(websocket: WebSocket, data: dict, client: httpx.AsyncClien
             "model": config.get("llm_model"),
             "temperature": config.get("llm_temp"),
             "llm_env": config.get("llm_env", "local"),
-            "llm_api_key": config.get("llm_api_key", "")
+            "llm_api_key": config.get("llm_api_key", ""),
+            "embedding_provider": config.get("embedding_provider", "local"),
+            "embedding_api_key": config.get("embedding_api_key", ""),
+            "context": context
         }
-        brain_res = await client.post(f"{BRAIN_URL}/chat", json=brain_payload)
-        brain_data = brain_res.json()
-        response_text = brain_data.get("response", "对不起，我现在有点忙，稍后再聊吧。")
-        intent = brain_data.get("intent", "chat")
-        logger.info(f"Brain 回复 (意图: {intent}): {response_text}")
+        
+        # 使用流式客户端
+        buffer = ""
+        full_response = ""
+        current_intent = "chat"
+        
+        # 为了不阻塞 LLM 文本流的读取，我们将 TTS 请求放入队列由后台任务处理
+        tts_queue = asyncio.Queue()
+        
+        async def tts_worker():
+            while True:
+                text_chunk = await tts_queue.get()
+                if text_chunk is None:
+                    tts_queue.task_done()
+                    break
+                
+                tts_params = {
+                    "text": text_chunk,
+                    "voice": config.get("tts_voice"),
+                    "rate": config.get("tts_rate")
+                }
+                try:
+                    # 使用较长的超时时间，TTS 合成可能较慢
+                    tts_res = await client.get(f"{TTS_URL}/synthesize", params=tts_params, timeout=30.0)
+                    if tts_res.status_code == 200:
+                        audio_data = tts_res.content
+                        await websocket.send_json({
+                            "type": "audio_chunk",
+                            "data": {"audio": base64.b64encode(audio_data).decode()}
+                        })
+                except Exception as tts_e:
+                    logger.error(f"TTS Streaming Error for chunk '{text_chunk}': {tts_e}")
+                finally:
+                    tts_queue.task_done()
+
+        # 启动 TTS 工作协程
+        worker_task = asyncio.create_task(tts_worker())
+        
+        # 为了防止首次唤醒大模型（尤其 OLLAMA）长达十几秒甚至几分钟导致的超时，将 read timeout 设置为 None
+        stream_timeout = httpx.Timeout(connect=20.0, read=None, write=None, pool=None)
+        async with client.stream("POST", f"{BRAIN_URL}/chat_stream", json=brain_payload, timeout=stream_timeout) as brain_res:
+            async for line in brain_res.aiter_lines():
+                if not line:
+                    continue
+                try:
+                    event = json.loads(line)
+                    evt_type = event.get("type")
+                    content = event.get("content", "")
+                    
+                    if evt_type == "intent":
+                        current_intent = content
+                        logger.info(f"Brain 检测到意图: {current_intent}")
+                    
+                    elif evt_type == "token":
+                        content = event.get("content", "")
+                        
+                        # 如果这段话之后出现了隐式分隔符 |||，我们完全跳过它以及之后的任何文字（也就是记忆标记过程）
+                        if "|||" in full_response + content:
+                            if "|||" not in full_response:
+                                # 刚好在此次 token 中第一次碰到 |||，把 ||| 之前的部分加进缓冲并刷出
+                                safe_part = (full_response + content).split("|||")[0].replace(full_response, "")
+                                if safe_part:
+                                    buffer += safe_part
+                            # 置为静默，不再追加到发给前端的 buffer 中
+                            full_response += content
+                            continue
+                            
+                        full_response += content
+                        buffer += content
+                        
+                        # 标点符号截断缓冲，生成一句话发给 TTS 和前端
+                        if any(punc in buffer for punc in ["，", "。", "！", "？", "；", "\n", ",", ".", "!", "?", ";"]):
+                            flush_text = buffer
+                            buffer = ""
+                            if flush_text.strip():
+                                await websocket.send_json({"type": "text_chunk", "data": {"text": flush_text}})
+                                # 将文本放入队列等待 TTS 合成
+                                await tts_queue.put(flush_text.strip())
+                    
+                    elif evt_type == "done":
+                        break
+                    
+                    elif evt_type == "error":
+                        logger.error(f"Brain stream reported error: {content}")
+                        await websocket.send_json({"type": "text_chunk", "data": {"text": " 哎呀，我的大脑出了一点小故障。"}})
+                        break
+                        
+                except json.JSONDecodeError:
+                    continue
+        
+        # 兜底处理：发送剩余缓冲区的内容
+        if buffer.strip() and "|||" not in full_response:
+            await websocket.send_json({"type": "text_chunk", "data": {"text": buffer}})
+            await tts_queue.put(buffer.strip())
+            
+        # 等待所有 TTS 任务完成
+        await tts_queue.put(None)
+        await worker_task
+                 
+        # 从全量回复中剔除提供给前端可见的部分 (去除 ||| 后面的记忆指令)
+        clean_full_text = full_response.split("|||")[0].strip()
+        await websocket.send_json({"type": "response_complete", "data": {"full_text": clean_full_text}})
+        
+    except httpx.ReadTimeout:
+         logger.error("Brain Service Request Timed Out.")
+         await websocket.send_json({"type": "text_chunk", "data": {"text": " 大脑思考超时了，请稍后再试。"}})
+         await websocket.send_json({"type": "response_complete", "data": {"full_text": " 大脑思考超时了，请稍后再试。"}})
     except Exception as e:
-        logger.error(f"Brain Service Error: {e}")
-        response_text = "哎呀，我的大脑断网了，请检查网络设置。"
-    
-    await websocket.send_json({"type": "text_chunk", "data": {"text": response_text}})
-    
-    # 4. 调用 TTS
-    logger.info(f"调用 TTS 服务 (voice={config.get('tts_voice')})...")
-    tts_params = {
-        "text": response_text,
-        "voice": config.get("tts_voice"),
-        "rate": config.get("tts_rate")
-    }
-    tts_res = await client.get(f"{TTS_URL}/synthesize", params=tts_params)
-    audio_data = tts_res.content
-    
-    await websocket.send_json({
-        "type": "audio_chunk",
-        "data": {"audio": base64.b64encode(audio_data).decode()}
-    })
-    
-    await websocket.send_json({"type": "response_complete", "data": {"full_text": response_text}})
+        logger.error(f"Brain Service Connection Error: {e}")
+        error_msg = "哎呀，我的大脑断网了，请检查网络设置。"
+        await websocket.send_json({"type": "text_chunk", "data": {"text": error_msg}})
+        await websocket.send_json({"type": "response_complete", "data": {"full_text": error_msg}})
+
+@app.get("/")
+async def root():
+    return {"status": "gateway_running"}
+
+class QueryRequest(BaseModel):
+    query: str
+    top_k: int = 3
+    embedding_provider: str = "local"
+    embedding_api_key: Optional[str] = None
+
+@app.post("/retrieve")
+async def retrieve(request: QueryRequest):
+    """Proxy retrieve command to RAG service"""
+    logger.info(f"Proxying retrieval to RAG: {request.query}")
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            res = await client.post(f"{RAG_URL}/retrieve", json=request.dict())
+            return res.json()
+    except Exception as e:
+        logger.error(f"Failed to proxy retrieve: {e}")
+        raise HTTPException(status_code=500, detail="RAG service unavailable")
 
 @app.get("/health")
 async def health():
