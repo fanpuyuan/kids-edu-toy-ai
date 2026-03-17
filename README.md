@@ -88,6 +88,7 @@ graph TD
 - 操作系统 Windows / Linux / macOS。
 - 已安装 [Docker Desktop](https://www.docker.com/products/docker-desktop/) 及最新版的 `docker-compose`。
 - *(可选推荐)* 若期望使用显卡全速运行本地大模型，需安装 NVIDIA 原厂显卡驱动及对应的 [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html)。
+- *(可选推荐)* 注册 [LangSmith](https://smith.langchain.com/) 获取 Personal Access Token，用于追踪大模型推理链路与状态机编排情况。
 
 ### 2. 克隆项目与启动环境
 ```bash
@@ -99,7 +100,11 @@ cd kids-edu-toy-ai
 mkdir data
 mkdir test
 
-# 3. 以后台挂起模式同时构建并拉起整个微服务集群
+# 3. (可选) 配置 LangSmith 追踪
+# 将 docker-compose.yml 中 brain_service 下的 LANGCHAIN_API_KEY 替换为你自己的密钥
+# - LANGCHAIN_API_KEY=your_langsmith_api_key_here
+
+# 4. 以后台挂起模式同时构建并拉起整个微服务集群
 docker-compose up -d --build
 ```
 *(注：首次构建时会安装众多如 PyTorch、FunASR 等巨型 Python 依赖，视网速可能需要数十分钟。)*
