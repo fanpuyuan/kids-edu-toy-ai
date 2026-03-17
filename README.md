@@ -172,6 +172,9 @@ kids-edu-toy-ai/
 - [ ] **CosyVoice / MiniMax 高级语音克隆对接**: 
   - 支持家长在前端控制台录制 5 秒音频，系统自动调用大批量的零样本 (Zero-shot) 克隆 API 进行微调。
   - 在 TTS 服务中实现双引擎热切换，让玩具用“爸爸妈妈的声音”读睡前故事。
+- [ ] **RAG 深度测评与重排序 (Reranker) 调优**: 
+  - 引入 `Ragas` 或 `TruLens` 等评价框架，针对童话绘本和少儿百科数据集建立标准自动化测试基准 (Ground Truth)。
+  - 对比测试并接入 BGE-Reranker 等重排序模型，解决 BM25 与 Vector 混合检索后的 Top-K 精度衰减问题。
 - [ ] **多模态视觉引入 (Vision Support)**:
   - 接入 Qwen-VL 或 OpenAI GPT-4o Vision 模型。支持硬件端摄像头回传画面，实现“看图说话”、“识别面前的绘本”或“这件玩具是什么颜色”的交互。
 - [ ] **边缘端唤醒词 (Wake Word Engine)**:
