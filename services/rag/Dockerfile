@@ -2,7 +2,8 @@ FROM python:3.10-slim
 
 # Install system dependencies required for unstructured and building C++ extensions
 USER root
-RUN apt-get update && apt-get install -y --no-install-recommends \
+
+RUN apt-get update -o Acquire::Retries=5 && apt-get install -y --no-install-recommends -o Acquire::Retries=5 \
     build-essential \
     python3-dev \
     libxml2-dev \
@@ -22,7 +23,6 @@ RUN pip install --upgrade pip
 
 # Copy and install requirements
 COPY requirements.txt .
-# Use tuna mirror for faster installation in China
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application code

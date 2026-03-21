@@ -6,36 +6,39 @@
 graph TD
     %% 外部访问层 (公网)
     subgraph Public_Internet ["公网用户 / 物理网段"]
-        User_Browser(("浏览器端 - 演示用"))
-        Hardware_Toy(("🧸实体玩具端 - 最终用"))
+        User_Browser(("浏览器端 - 家长控制台"))
+        Hardware_Toy(("🧸实体玩具端 - 儿童用"))
     end
     
-    User_Browser == "HTTP Web访问 (8501)" ==> Nginx_or_Host["阿里云公网 IP"]
+    User_Browser == "HTTP Web访问 (8501)" ==> Nginx_or_Host["局域网/公网 IP"]
     Hardware_Toy == "WebSocket 流式推送 (8000)" ==> Nginx_or_Host
 
-    %% 云端服务器 (阿里云内部)
-    subgraph Aliyun_Server ["阿里云 Docker Compose 内网环境"]
+    %% 云端服务器
+    subgraph Aliyun_Server ["Docker Compose 微服务网络"]
     
         %% 前台演示
-        Nginx_or_Host --> Streamlit_App["📱 Streamlit 前端 (暴露8501) - 模拟玩具终端"]
+        Nginx_or_Host --> Streamlit_App["📱 Frontend UI 前端 (暴露8501)"]
         
         %% 后端核心网关
-        Nginx_or_Host --> FastAPI["✨ FastAPI Ws 后端 (暴露8000) - 核心中枢"]
-        Streamlit_App == "内网调用 ws://api_backend:8000/ws" ==> FastAPI
+        Nginx_or_Host --> Gateway["✨ Gateway 核心网关 (暴露8000)"]
+        Streamlit_App == "HTTP API 调用" ==> Gateway
         
-        subgraph FastAPI_Container ["业务网关 (kids_backend 容器)"]
-            WsRouter["API 路由器"]
-            ASR_Module["ASR 语音识别"]
-            RAG_Module["RAG 知识检索"]
-            LLM_Module["LLM 对接模块"]
-            TTS_Module["TTS 语音合成"]
+        subgraph Microservices ["核心微服务集群 (隔离挂载)"]
+            Gateway[\"Gateway 网关 <br> (内置 SQLite 全局配置管理)"\]
             
-            WsRouter --> ASR_Module --> RAG_Module --> LLM_Module --> TTS_Module --> WsRouter
+            Gateway -->|HTTP POST| ASR_Service["ASR 语音转文本 (8001)"]
+            Gateway -->|HTTP POST| RAG_Service["RAG 知识检索 (8003)"]
+            Gateway -->|HTTP POST| Brain_Service["Brain 大模型中枢 (8004)"]
+            Gateway -->|HTTP POST| TTS_Service["TTS 双路合成 (8002)"]
+            Gateway -->|HTTP POST| Clone_Route["Voice Cloning 注册"] -.-> TTS_Service
+            
+            Brain_Service -->|HTTP 查询| RAG_Service
         end
         
-        %% 高算力与存储层 (安全隔离，不暴露给公网)
-        LLM_Module == "内网HTTP (http://ollama:11434)" ==> Ollama_Container["🧠 Ollama 大模型推理 (不对外暴露)"]
-        RAG_Module == "内网调用 (http://chroma:8000)" ==> ChromaDB_Container["🗃️ ChromaDB 向量库 (不对外暴露)"]
+        %% 高算力与外网调用层
+        Brain_Service == "内网HTTP (http://ollama:11434)" ==> Ollama_Container["🧠 Ollama 本地推理"]
+        TTS_Service -.->|HTTPS 外网| DashScope["阿里云 CosyVoice大模型 API"]
+        TTS_Service -.->|HTTPS 外网| EdgeTTS["微软 Edge-TTS"]
         
     end
 ```

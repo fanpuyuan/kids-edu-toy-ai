@@ -8,16 +8,15 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 
 # 1. 先安装 Torch 核心库 (体积最大)
-RUN pip install --no-cache-dir --default-timeout=1000 \
-    torch torchaudio
+RUN pip install --no-cache-dir --default-timeout=100 \
+    torch torchaudio --index-url https://download.pytorch.org/whl/cpu
 
 # 2. 升级 pip resolver
 RUN pip install --upgrade pip setuptools wheel
 
 # 3. 复制依赖清单并安装其余包
 COPY requirements.txt .
-RUN pip install --no-cache-dir --default-timeout=1000 \
-    -r requirements.txt
+RUN pip install --no-cache-dir --default-timeout=100 -r requirements.txt
 
 # 复制整个项目源码
 COPY . .

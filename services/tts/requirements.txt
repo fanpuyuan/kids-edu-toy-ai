@@ -2,3 +2,5 @@ edge-tts>=6.1.0
 fastapi
 uvicorn
 loguru
+dashscope
+httpx

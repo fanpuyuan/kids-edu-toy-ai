@@ -15,14 +15,30 @@ except ImportError:
 
 class EmbeddingEngine:
     """Holds all components for a specific embedding provider."""
-    def __init__(self, provider: str, embed_model, chroma_client, chroma_dir: Path, bm25_dir: Path):
+    def __init__(self, provider: str, embed_model, chroma_client, chroma_dir: Path, bm25_dir: Path, storage_dir: Path):
         self.provider = provider
         self.embed_model = embed_model
         self.chroma_collection_name = f"kids_knowledge_{provider}"
         self.chroma_collection = chroma_client.get_or_create_collection(self.chroma_collection_name)
         self.vector_store = ChromaVectorStore(chroma_collection=self.chroma_collection)
-        self.storage_context = StorageContext.from_defaults(vector_store=self.vector_store)
+        
+        self.storage_dir = storage_dir / provider
         self.bm25_dir = bm25_dir / provider
+        
+        # Load or create StorageContext (holds DocStore for Hierarchical Nodes)
+        if self.storage_dir.exists() and any(self.storage_dir.iterdir()):
+            try:
+                self.storage_context = StorageContext.from_defaults(
+                    persist_dir=str(self.storage_dir), 
+                    vector_store=self.vector_store
+                )
+                logger.info(f"Loaded StorageContext (DocStore) for {provider} successfully.")
+            except Exception as e:
+                logger.error(f"Failed to load StorageContext for {provider}: {e}")
+                self.storage_context = StorageContext.from_defaults(vector_store=self.vector_store)
+        else:
+            self.storage_context = StorageContext.from_defaults(vector_store=self.vector_store)
+
         
         # Initialize Vector Index
         try:
@@ -54,6 +70,7 @@ class DBManager:
         self.data_dir = Path(data_dir)
         self.chroma_dir = self.data_dir / "chroma"
         self.bm25_base_dir = self.data_dir / "bm25_index"
+        self.storage_base_dir = self.data_dir / "storage_context"
         self.chroma_client = chromadb.PersistentClient(path=str(self.chroma_dir))
         
         # Shared configuration
@@ -98,7 +115,8 @@ class DBManager:
             embed_model=embed_model,
             chroma_client=self.chroma_client,
             chroma_dir=self.chroma_dir,
-            bm25_dir=self.bm25_base_dir
+            bm25_dir=self.bm25_base_dir,
+            storage_dir=self.storage_base_dir
         )
         # Store the key used for future change detection
         if provider == "dashscope":

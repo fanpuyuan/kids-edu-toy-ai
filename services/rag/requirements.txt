@@ -5,6 +5,7 @@ llama-index
 llama-index-vector-stores-chroma
 llama-index-embeddings-huggingface
 llama-index-retrievers-bm25
+llama-index-retrievers-auto-merging
 unstructured[all-docs]
 rank_bm25
 jieba

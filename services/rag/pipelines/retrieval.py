@@ -2,6 +2,7 @@ from typing import List, Dict, Optional
 from loguru import logger
 from llama_index.core.schema import NodeWithScore
 from llama_index.core.retrievers import QueryFusionRetriever
+from llama_index.retrievers.auto_merging import AutoMergingRetriever
 from llama_index.core.llms.mock import MockLLM
 from core.db import DBManager
 
@@ -47,15 +48,26 @@ class RetrievalPipeline:
         
         fusion_retriever = QueryFusionRetriever(
             retrievers,
+            llm=self.mock_llm,  # Critical Bug Fix: Prevents LlamaIndex from hitting OpenAI API
             similarity_top_k=actual_top_k,
             num_queries=1,  # No query expansion for now
             mode="reciprocal_rerank",
             use_async=False,
         )
         
+        # 4. Setup AutoMergingRetriever for Hierarchical Nodes
+        if hasattr(engine, 'storage_context') and engine.storage_context:
+            final_retriever = AutoMergingRetriever(
+                fusion_retriever, 
+                engine.storage_context, 
+                verbose=True
+            )
+        else:
+            final_retriever = fusion_retriever
+        
         try:
-            results: List[NodeWithScore] = fusion_retriever.retrieve(query)
-            logger.info(f"Hybrid retrieval found {len(results)} pertinent nodes.")
+            results: List[NodeWithScore] = final_retriever.retrieve(query)
+            logger.info(f"Hybrid AutoMerging retrieval found {len(results)} pertinent nodes.")
             
             # Format results for the Brain service
             formatted_results = []

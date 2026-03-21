@@ -1,0 +1,46 @@
+import requests
+import time
+
+RAG_URL = "http://localhost:8003"
+TEST_FILE = "test_story.txt"
+
+story_content = """
+在遥远的大森林里，住着三只小猪。
+老大用稻草盖了一间原生态的茅草屋，虽然建得很快，但是一点也不坚固，风一吹就会摇晃。老大每天躺在屋子里睡大觉，觉得自己的房子是世界上最棒的。
+老二去森林里捡了很多树枝，用木头盖了一间小木屋。木屋比茅草屋结实一点，还能挡挡雨。老二觉得这样就足够了，于是每天和小鸟一起唱歌跳舞。
+老三是个勤奋务实的小猪。他跑到很远的市场去买来了一块又一块沉甸甸的红砖。他顶着烈日，和着水泥，花了一个多月的时间，终于盖起了一座坚不可摧的红砖房。砖房不仅不怕风雨，里面还有壁炉可以烤火。
+
+有一天，大森林里来了一只非常饥饿的大灰狼。大灰狼垂涎欲滴，它首先来到了老大的茅草屋前，深吸了一口气，猛地一吹：“呼——！” 茅草屋瞬间就被吹飞了。老大吓得屁滚尿流，拼命跑到了老二的木屋里。
+大灰狼舔了舔嘴唇，跟着来到了老二的木屋前。他大喊：“小猪小猪，让我进去！” 里面的两只小猪抖个不停：“不让不让，绝不让你进来！” 大灰狼冷笑一声，深吸了两口气，猛地一吹：“呼——！” 木屋发出痛苦的吱呀声，随后也轰然倒塌。
+老大和老二哭喊着，不要命地跑向老三的红砖房。老三赶紧开门让他们进来，并迅速锁上了三道打铁锁。
+大灰狼不慌不忙地走到了红砖房前。他心想，这有什么难的，照样是一口气的事。于是他深吸了三大口气，用尽全身的力气猛地一吹：“呼——！” 可是，红砖房纹丝不动。大灰狼不服气，又连续吹了十几次，直吹得自己头晕眼花，气喘吁吁，瘫倒在地。
+
+最后，大灰狼抬头看到了红砖房顶上的烟囱。他嘿嘿阴笑两声，拿出一架梯子，顺着墙壁爬上了屋顶，打算从烟囱里偷偷钻进去。
+屋子里的老三非常聪明。他听到房顶上有动静，立刻在壁炉底下点了很大一堆柴火，并在上面架起了一大铁锅滚烫的热水。
+大灰狼刚从烟囱里滑下来，“扑通”一声，就直直地掉进了滚开的热水锅里。大灰狼惨叫一声，犹如火箭一般从烟囱里窜了出去，从此再也不敢踏进这片大森林半步了。三只小猪幸福地生活在一起。
+"""
+
+# 1. Write the test file
+with open(TEST_FILE, "w", encoding="utf-8") as f:
+    f.write(story_content)
+
+print("[1] Uploading hierarchical test document...")
+with open(TEST_FILE, "rb") as f:
+    response = requests.post(f"{RAG_URL}/upload_doc", files={"file": (TEST_FILE, f)})
+print(response.json())
+
+# wait for indexing
+time.sleep(2)
+
+print("\n[2] Querying for a specific child-node detail...")
+# 故意问一个极其细节的动作，这必然只能被某个 256 块的小叶子节点命中
+query_text = "大灰狼想通过什么方式进屋的？"
+response = requests.post(f"{RAG_URL}/retrieve", json={"query": query_text})
+results = response.json()
+
+print(f"\n[3] Retrieval Results (Expected to be the merged large parent chunk (1024) instead of the tiny chunk!):")
+for idx, res in enumerate(results):
+    text_len = len(res['content'])
+    print(f"--- MATCH {idx+1} (Length: {text_len} chars) ---")
+    print(res['content'][:250] + "...(omitted for brevity)" if text_len > 250 else res['content'])
+    print("----------------------------------\n")

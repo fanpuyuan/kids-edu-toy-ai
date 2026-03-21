@@ -41,15 +41,7 @@ class SQLiteManager:
                     logger.info("Migrating database: adding embedding_provider column to documents table.")
                     cursor.execute("ALTER TABLE documents ADD COLUMN embedding_provider TEXT")
 
-                # App Configuration Table
-                cursor.execute('''
-                    CREATE TABLE IF NOT EXISTS app_config (
-                        config_key TEXT PRIMARY KEY,
-                        config_value TEXT NOT NULL,
-                        updated_at DATETIME NOT NULL
-                    )
-                ''')
-                
+
                 conn.commit()
             logger.info(f"Initialized/Migrated SQLite database at {self.db_path}")
         except Exception as e:
@@ -145,37 +137,6 @@ class SQLiteManager:
         except Exception as e:
             logger.error(f"Failed to delete document record {doc_id}: {e}")
 
-    # --- Configuration Management ---
-    
-    def get_all_configs(self) -> dict:
-        """Retrieves all configuration key-value pairs."""
-        try:
-            with sqlite3.connect(self.db_path) as conn:
-                cursor = conn.cursor()
-                cursor.execute("SELECT config_key, config_value FROM app_config")
-                rows = cursor.fetchall()
-                return {row[0]: row[1] for row in rows}
-        except Exception as e:
-            logger.error(f"Failed to fetch configs: {e}")
-            return {}
 
-    def save_configs(self, configs: dict) -> bool:
-        """Saves a dictionary of configurations (Upsert)."""
-        updated_at = datetime.now().isoformat()
-        try:
-            with sqlite3.connect(self.db_path) as conn:
-                cursor = conn.cursor()
-                for key, value in configs.items():
-                    # UPSERT requires SQLite 3.24.0+. We use REPLACE INTO as a simple alternative for key-value.
-                    cursor.execute(
-                        "REPLACE INTO app_config (config_key, config_value, updated_at) VALUES (?, ?, ?)",
-                        (key, str(value), updated_at)
-                    )
-                conn.commit()
-            logger.info("Successfully updated app_config")
-            return True
-        except Exception as e:
-            logger.error(f"Failed to save configs: {e}")
-            return False
 
 sqlite_manager = SQLiteManager()

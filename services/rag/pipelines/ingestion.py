@@ -6,14 +6,14 @@ from pathlib import Path
 from loguru import logger
 import jieba
 from llama_index.core import SimpleDirectoryReader, VectorStoreIndex
-from llama_index.core.node_parser import SentenceSplitter
+from llama_index.core.node_parser import HierarchicalNodeParser, get_leaf_nodes
 from llama_index.retrievers.bm25 import BM25Retriever
 from core.db import DBManager
 
 class IngestionPipeline:
     def __init__(self, db_manager: DBManager):
         self.db = db_manager
-        self.node_parser = SentenceSplitter(chunk_size=512, chunk_overlap=50)
+        self.node_parser = HierarchicalNodeParser.from_defaults(chunk_sizes=[1024, 256])
 
     def calculate_md5(self, file_path: str) -> str:
         """Calculates MD5 hash of a file."""
@@ -32,26 +32,33 @@ class IngestionPipeline:
         # Load and split
         documents = SimpleDirectoryReader(input_files=[file_path]).load_data()
         nodes = self.node_parser.get_nodes_from_documents(documents)
+        leaf_nodes = get_leaf_nodes(nodes)
         
         # Add metadata
         for node in nodes:
             node.metadata["doc_id"] = doc_id
+            
+        # Add all nodes (parents and leaves) to docstore
+        engine.storage_context.docstore.add_documents(nodes)
         
-        # 1. Vector Store
+        # 1. Vector Store (only index leaf nodes)
         if engine.vector_index:
-            engine.vector_index.insert_nodes(nodes)
+            engine.vector_index.insert_nodes(leaf_nodes)
         else:
             engine.vector_index = VectorStoreIndex(
-                nodes, 
+                leaf_nodes, 
                 storage_context=engine.storage_context,
                 embed_model=engine.embed_model
             )
+            
+        # Persist the docstore
+        engine.storage_context.persist(persist_dir=str(engine.storage_dir))
         
-        # 2. Keyword Store (BM25)
+        # 2. Keyword Store (BM25) - only index leaf nodes
         # 优化: 不是每次都从 Chroma 全量拉取重建，而是将新增节点追加到现有的 BM25 中
-        self._add_to_bm25(nodes, provider, api_key=api_key)
+        self._add_to_bm25(leaf_nodes, provider, api_key=api_key)
         
-        return len(nodes)
+        return len(leaf_nodes)
 
     def _add_to_bm25(self, new_nodes: list, provider: str = "local", api_key: Optional[str] = None):
         """Incrementally adds new nodes to the existing BM25 index."""
@@ -146,6 +153,9 @@ class IngestionPipeline:
             # Remove BM25 files
             if engine.bm25_dir.exists():
                 shutil.rmtree(engine.bm25_dir)
+            # Remove StorageContext files
+            if engine.storage_dir.exists():
+                shutil.rmtree(engine.storage_dir)
             # Reset engine state
             engine.vector_index = None
             engine.bm25_retriever = None

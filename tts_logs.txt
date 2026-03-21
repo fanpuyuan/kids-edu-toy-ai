@@ -1,0 +1,31 @@
+2026-03-17 13:56:41.258 | INFO     | tts_service:__init__:18 - TTS初始化: voice=zh-CN-XiaoxiaoNeural
+INFO:     Started server process [1]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8002 (Press CTRL+C to quit)
+2026-03-17 14:01:11.769 | INFO     | cosyvoice_service:_synthesize_sync:24 - CosyVoice 开始合成: text=你好呀！..., voice=zh-CN-XiaoxiaoNeural
+TTS生成失败 (cosyvoice): websocket connection could not established within 5s. Please check your network connection, firewall settings, or server status.
+websocket closed due to [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1017)
+INFO:     172.23.0.7:46796 - "GET /synthesize?text=%E4%BD%A0%E5%A5%BD%E5%91%80%EF%BC%81&voice=zh-CN-XiaoxiaoNeural&rate=%2B0%25&engine=cosyvoice&cosyvoice_api_key=sk-0f2a52e52a01452b901b162544b50c9c HTTP/1.1" 500 Internal Server Error
+2026-03-17 14:01:16.787 | INFO     | cosyvoice_service:_synthesize_sync:24 - CosyVoice 开始合成: text=今天想玩什么游戏呢？..., voice=zh-CN-XiaoxiaoNeural
+websocket closed due to [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1017)
+INFO:     172.23.0.7:46796 - "GET /synthesize?text=%E4%BB%8A%E5%A4%A9%E6%83%B3%E7%8E%A9%E4%BB%80%E4%B9%88%E6%B8%B8%E6%88%8F%E5%91%A2%EF%BC%9F&voice=zh-CN-XiaoxiaoNeural&rate=%2B0%25&engine=cosyvoice&cosyvoice_api_key=sk-0f2a52e52a01452b901b162544b50c9c HTTP/1.1" 500 Internal Server Error
+TTS生成失败 (cosyvoice): websocket connection could not established within 5s. Please check your network connection, firewall settings, or server status.
+2026-03-17 14:01:37.287 | INFO     | cosyvoice_service:_synthesize_sync:24 - CosyVoice 开始合成: text=你好呀！..., voice=zh-CN-XiaoxiaoNeural
+TTS生成失败 (cosyvoice): websocket connection could not established within 5s. Please check your network connection, firewall settings, or server status.
+websocket closed due to [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1017)
+INFO:     172.23.0.7:60444 - "GET /synthesize?text=%E4%BD%A0%E5%A5%BD%E5%91%80%EF%BC%81&voice=zh-CN-XiaoxiaoNeural&rate=%2B0%25&engine=cosyvoice&cosyvoice_api_key=sk-0f2a52e52a01452b901b162544b50c9c HTTP/1.1" 500 Internal Server Error
+2026-03-17 14:01:42.298 | INFO     | cosyvoice_service:_synthesize_sync:24 - CosyVoice 开始合成: text=今天想玩什么游戏呢？..., voice=zh-CN-XiaoxiaoNeural
+TTS生成失败 (cosyvoice): websocket connection could not established within 5s. Please check your network connection, firewall settings, or server status.
+websocket closed due to [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1017)
+INFO:     172.23.0.7:60444 - "GET /synthesize?text=%E4%BB%8A%E5%A4%A9%E6%83%B3%E7%8E%A9%E4%BB%80%E4%B9%88%E6%B8%B8%E6%88%8F%E5%91%A2%EF%BC%9F&voice=zh-CN-XiaoxiaoNeural&rate=%2B0%25&engine=cosyvoice&cosyvoice_api_key=sk-0f2a52e52a01452b901b162544b50c9c HTTP/1.1" 500 Internal Server Error
+INFO:     172.23.0.7:57384 - "GET /synthesize?text=%E4%BD%A0%E5%A5%BD%E5%91%80%EF%BC%81&voice=zh-CN-XiaoxiaoNeural&rate=%2B0%25&engine=edge-tts&cosyvoice_api_key= HTTP/1.1" 200 OK
+INFO:     172.23.0.7:57384 - "GET /synthesize?text=%E4%BB%8A%E5%A4%A9%E6%83%B3%E7%8E%A9%E4%BB%80%E4%B9%88%E6%B8%B8%E6%88%8F%E5%91%A2%EF%BC%9F&voice=zh-CN-XiaoxiaoNeural&rate=%2B0%25&engine=edge-tts&cosyvoice_api_key= HTTP/1.1" 200 OK
+2026-03-17 14:02:35.721 | INFO     | cosyvoice_service:_synthesize_sync:24 - CosyVoice 开始合成: text=你好呀！..., voice=zh-CN-XiaoxiaoNeural
+websocket closed due to [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1017)
+INFO:     172.23.0.7:59578 - "GET /synthesize?text=%E4%BD%A0%E5%A5%BD%E5%91%80%EF%BC%81&voice=zh-CN-XiaoxiaoNeural&rate=%2B0%25&engine=cosyvoice&cosyvoice_api_key=sk-0f2a52e52a01452b901b162544b50c9c HTTP/1.1" 500 Internal Server Error
+TTS生成失败 (cosyvoice): websocket connection could not established within 5s. Please check your network connection, firewall settings, or server status.
+2026-03-17 14:02:40.731 | INFO     | cosyvoice_service:_synthesize_sync:24 - CosyVoice 开始合成: text=今天想玩什么游戏呢？..., voice=zh-CN-XiaoxiaoNeural
+TTS生成失败 (cosyvoice): websocket connection could not established within 5s. Please check your network connection, firewall settings, or server status.
+websocket closed due to [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1017)
+INFO:     172.23.0.7:59578 - "GET /synthesize?text=%E4%BB%8A%E5%A4%A9%E6%83%B3%E7%8E%A9%E4%BB%80%E4%B9%88%E6%B8%B8%E6%88%8F%E5%91%A2%EF%BC%9F&voice=zh-CN-XiaoxiaoNeural&rate=%2B0%25&engine=cosyvoice&cosyvoice_api_key=sk-0f2a52e52a01452b901b162544b50c9c HTTP/1.1" 500 Internal Server Error

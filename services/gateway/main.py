@@ -13,6 +13,8 @@ from typing import Optional
 from loguru import logger
 import os
 
+from core.db_sqlite import sqlite_manager
+
 app = FastAPI(title="Gateway Service")
 
 # 存储模型拉取进度
@@ -23,6 +25,22 @@ ASR_URL = os.getenv("ASR_URL", "http://asr-service:8001")
 TTS_URL = os.getenv("TTS_URL", "http://tts-service:8002")
 RAG_URL = os.getenv("RAG_URL", "http://rag-service:8003")
 BRAIN_URL = os.getenv("BRAIN_URL", "http://brain-service:8004")
+
+# --- Configuration Endpoints ---
+@app.get("/config")
+async def get_config():
+    """Retrieves all global configuration settings directly from Gateway's DB."""
+    configs = sqlite_manager.get_all_configs()
+    return {"status": "success", "configs": configs}
+
+@app.post("/config")
+async def set_config(configs: dict):
+    """Saves global configuration settings locally in Gateway."""
+    success = sqlite_manager.save_configs(configs)
+    if success:
+        return {"status": "success", "message": "Configs saved successfully in Gateway"}
+    else:
+        raise HTTPException(status_code=500, detail="Failed to save configs in Gateway")
 
 class MemoryUpdateRequest(BaseModel):
     layer: str
@@ -126,6 +144,24 @@ async def clear_docs(embedding_provider: str = "local", embedding_api_key: Optio
     except Exception as e:
         logger.error(f"Failed to proxy clear_docs: {e}")
         raise HTTPException(status_code=500, detail="RAG service unavailable")
+
+@app.post("/clone_voice")
+async def clone_voice(
+    audio: UploadFile = File(...),
+    api_key: str = Form(...)
+):
+    """Proxy voice cloning request to TTS service"""
+    logger.info(f"Proxying voice clone request to TTS: {audio.filename}")
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            content = await audio.read()
+            files = {"audio": (audio.filename, content, audio.content_type)}
+            data = {"api_key": api_key}
+            res = await client.post(f"{TTS_URL}/clone_voice", files=files, data=data)
+            return res.json()
+    except Exception as e:
+        logger.error(f"Failed to proxy clone_voice: {e}")
+        raise HTTPException(status_code=500, detail="TTS service unavailable")
 
 @app.get("/list_docs")
 async def list_docs(embedding_provider: Optional[str] = None):
@@ -233,11 +269,17 @@ async def websocket_endpoint(websocket: WebSocket):
     
     # 默认配置
     config = {
-        "llm_model": "qwen3.5:2b",
+        "llm_model": "qwen3.5:0.8b",
         "llm_temp": 0.7,
         "tts_voice": "zh-CN-XiaoxiaoNeural",
-        "tts_rate": "+0%"
+        "tts_rate": "+0%",
+        "tts_engine": "edge-tts",
+        "cosyvoice_api_key": ""
     }
+    
+    # 从本地数据库拉取全局配置覆盖默认值
+    db_configs = sqlite_manager.get_all_configs()
+    config.update(db_configs)
     
     try:
         # 增加超时时间到 60 秒，因为第一次加载新模型到显存通常需要 40-60 秒
@@ -317,7 +359,9 @@ async def handle_chat(websocket: WebSocket, data: dict, client: httpx.AsyncClien
                 tts_params = {
                     "text": text_chunk,
                     "voice": config.get("tts_voice"),
-                    "rate": config.get("tts_rate")
+                    "rate": config.get("tts_rate"),
+                    "engine": config.get("tts_engine", "edge-tts"),
+                    "cosyvoice_api_key": config.get("cosyvoice_api_key", "")
                 }
                 try:
                     # 使用较长的超时时间，TTS 合成可能较慢

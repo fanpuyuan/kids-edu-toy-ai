@@ -41,22 +41,6 @@ async def retrieve(request: QueryRequest):
     )
     return {"status": "success", "results": results}
 
-# --- Configuration Endpoints ---
-@app.get("/config")
-async def get_config():
-    """Retrieves all global configuration settings."""
-    configs = sqlite_manager.get_all_configs()
-    return {"status": "success", "configs": configs}
-
-@app.post("/config")
-async def set_config(configs: dict):
-    """Saves global configuration settings."""
-    success = sqlite_manager.save_configs(configs)
-    if success:
-        return {"status": "success", "message": "Configs saved successfully"}
-    else:
-        raise HTTPException(status_code=500, detail="Failed to save configs")
-
 # --- Document Management (Ingestion) Endpoints ---
 @app.post("/upload_doc")
 async def upload_doc(

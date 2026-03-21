@@ -108,13 +108,85 @@ with st.sidebar:
     st.divider()
     
     # E. Voice Config
+    # E. Voice Config
     st.subheader("🔊 声音配置 (TTS)")
-    tts_v = st.selectbox("音色", [
-        "zh-CN-XiaoxiaoNeural (女萌)", 
-        "zh-CN-YunxiNeural (男活泼)", 
-        "zh-CN-YunjianNeural (男稳重)",
-        "zh-HK-HiuMaanNeural (粤语女)"
-    ], index=0).split(" (")[0]
+    tts_e = st.radio("TTS 引擎", ["Edge-TTS (免费)", "CosyVoice (声音克隆)"], 
+                     index=0 if get_config_val("tts_engine", "edge-tts") == "edge-tts" else 1)
+                     
+    cosy_api_key = ""
+    if tts_e == "CosyVoice (声音克隆)":
+        cosy_api_key = st.text_input("DashScope / CosyVoice API Key", value=get_config_val("cosyvoice_api_key", ""), type="password")
+        
+        # 阿里云 CosyVoice 专属音色列表
+        cosy_voices = [
+            "longxiaochun (龙小淳 - 默认女声)",
+            "longxiaoxia (龙小夏 - 活泼女童)",
+            "longxiaocheng (龙小诚 - 稳重男声)"
+        ]
+        # 追加从本地配置里读出的已克隆的用户专属声音
+        saved_custom_voice = get_config_val("cosyvoice_custom_id", "")
+        if saved_custom_voice:
+            cosy_voices.append(f"{saved_custom_voice} (爸爸/妈妈克隆音)")
+            
+        default_idx = 0
+        saved_voice = get_config_val("tts_voice", "")
+        for i, v in enumerate(cosy_voices):
+            if saved_voice in v:
+                default_idx = i
+                break
+                
+        tts_v_raw = st.selectbox("音色 (CosyVoice)", cosy_voices, index=default_idx)
+        tts_v = tts_v_raw.split(" (")[0]
+        
+        # --- 声音克隆录制区域 ---
+        with st.expander("🎙️ 克隆我的声音 (需 3-10 秒清晰录音)"):
+            if not cosy_api_key:
+                st.warning("请先在上方填写 DashScope API Key")
+            else:
+                clone_audio = st.file_uploader("上传清晰讲话录音 (.wav / .mp3)", type=["wav", "mp3"])
+                if st.button("开始生成克隆专属音色"):
+                    if clone_audio:
+                        with st.spinner("正在上传至阿里云进行 Zero-shot 声音克隆..."):
+                            try:
+                                # Send to TTS service directly or via gateway for enrollment
+                                files = {"audio": (clone_audio.name, clone_audio.getvalue(), clone_audio.type)}
+                                data = {"api_key": cosy_api_key}
+                                res = requests.post(f"{GATEWAY_URL}/clone_voice", files=files, data=data, timeout=30.0)
+                                
+                                if res.status_code == 200:
+                                    result = res.json()
+                                    if result.get("status") == "success":
+                                        new_voice_id = result.get("voice_id")
+                                        st.success(f"克隆成功！已获得专属 Voice ID: {new_voice_id}")
+                                        # Save to session instantly so it updates the selectbox on next refresh
+                                        st.session_state["current_config"]["cosyvoice_custom_id"] = new_voice_id
+                                    else:
+                                        st.error(f"克隆失败: {result.get('message')}")
+                                else:
+                                    st.error(f"服务器错误: {res.text}")
+                            except Exception as e:
+                                st.error(f"网络请求失败: {e}")
+                    else:
+                        st.warning("请先上传音频文件。")
+        
+    else:
+        # 微软 Edge-TTS 专属音色列表
+        edge_voices = [
+            "zh-CN-XiaoxiaoNeural (晓晓 - 女萌)", 
+            "zh-CN-YunxiNeural (云希 - 男活泼)", 
+            "zh-CN-YunjianNeural (云健 - 男稳重)",
+            "zh-HK-HiuMaanNeural (晓曼 - 粤语女)"
+        ]
+        default_idx = 0
+        saved_voice = get_config_val("tts_voice", "zh-CN-XiaoxiaoNeural")
+        for i, v in enumerate(edge_voices):
+            if saved_voice in v:
+                default_idx = i
+                break
+                
+        tts_v_raw = st.selectbox("音色 (Edge-TTS)", edge_voices, index=default_idx)
+        tts_v = tts_v_raw.split(" (")[0]
+        
     tts_r = st.select_slider("语速", options=["-50%", "-20%", "+0%", "+20%", "+50%"], value="+0%")
     
     c_age = st.number_input("儿童年龄", 1, 12, 5)
@@ -125,6 +197,8 @@ st.session_state["current_config"].update({
     "llm_api_key": ll_key,
     "llm_model": sel_model,
     "llm_temp": ll_temp,
+    "tts_engine": "cosyvoice" if tts_e == "CosyVoice (声音克隆)" else "edge-tts",
+    "cosyvoice_api_key": cosy_api_key,
     "tts_voice": tts_v,
     "tts_rate": tts_r
 })

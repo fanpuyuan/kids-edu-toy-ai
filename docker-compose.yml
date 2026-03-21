@@ -80,6 +80,8 @@ services:
       - TTS_URL=http://tts-service:8002
       - RAG_URL=http://rag-service:8003
       - BRAIN_URL=http://brain-service:8004
+    volumes:
+      - ./data/gateway_data:/app/data
     depends_on:
       - asr-service
       - tts-service
